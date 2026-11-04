@@ -88,6 +88,7 @@ class Verdict(str, Enum):
     FAIL = "fail"
     ENV_ERROR = "env_error"   # 登录失败/脏库作废等,不计入功能失败
     ABORTED = "aborted"       # 哨兵发现标记外变化,本次作废重跑
+    SKIP = "skip"             # 未建模/未人审/非本期支持 —— 批量跑里透明跳过
 
 
 @dataclass
@@ -98,3 +99,7 @@ class CaseResult:
     details: list[str] = field(default_factory=list)
     cleanup_ok: bool = True
     duration_s: float = 0.0
+    # 批量报告展示用(可选)
+    title: str = ""
+    kind: str = ""
+    mode: str = ""
