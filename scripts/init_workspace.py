@@ -17,6 +17,11 @@ import shutil
 import sys
 from pathlib import Path
 
+try:  # Windows 控制台默认 GBK,强制 utf-8 才能打出 ✓ 和中文
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = REPO_ROOT / "templates"
 
