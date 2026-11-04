@@ -1,0 +1,19 @@
+# 业务数据整体外置,绝不提交 —— 站点配置/库连接/知识库/抓取样本/登录态都放这里
+/workspace/
+
+# 若用"仓库根回退"布局(未建 workspace 时)直接在根目录放业务,也一并忽略
+/config/
+/profiles/
+/knowledge_base/
+/actions/
+/cases/
+/captures/
+/artifacts/
+/.auth/
+.cleanup_registry.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/

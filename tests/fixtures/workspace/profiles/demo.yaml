@@ -1,0 +1,23 @@
+# 测试夹具:中性站点 profile(business-free)。tests 用 set_workspace 指向本目录来加载它。
+site: demo
+base_url: https://demo.example.com
+
+login:
+  mode: manual
+  login_url: https://demo.example.com/login
+  liveness_url: https://demo.example.com/home
+  logged_in_selector: null
+
+db:
+  readonly: demo_db
+
+knowledge_base: knowledge_base
+
+defaults:
+  feature: 列表检索
+  probe_url: https://demo.example.com/list
+  url_pattern: /api/items/search
+  db: app_test
+  table: items
+  pk: id
+  launch_mode: isolated

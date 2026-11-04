@@ -1,0 +1,22 @@
+# 复制到 <workspace>/config/db.yaml 填真实连接。db.yaml 不提交(见 .gitignore)。
+# 只读优先:查询/校验走 readonly;写操作(造数/清理)走 write(独立测试账号)。
+#
+# 支持两种结构:
+#   - 老式(sqlite 测试): readonly.dsn / write.dsn
+#   - 新式(多库显式参数): databases.<名>.{host,port,user,password,database} + default_readonly
+
+readonly:
+  dsn: "mysql+pymysql://user:password@test-db-host:3306/app_test"
+write:
+  # 未配妥独立测试账号前,留空 → 框架拒绝写操作,P1 不开
+  dsn: ""
+
+# 新式多库(按 profile.db.readonly 的名字选库):
+# default_readonly: app_test
+# databases:
+#   app_test:
+#     host: test-db-host
+#     port: 3306
+#     user: readonly_user
+#     password: "********"
+#     database: app_test

@@ -1,0 +1,9 @@
+# 浏览器自动化
+playwright>=1.40
+# DB 访问(只读优先;写操作走独立测试账号)
+SQLAlchemy>=2.0
+PyMySQL>=1.1           # MySQL 驱动,按你的库实际换(如 psycopg2 等)
+# 用例/知识库/配置
+PyYAML>=6.0
+# HTTP(API-first 适配器)
+httpx>=0.27
