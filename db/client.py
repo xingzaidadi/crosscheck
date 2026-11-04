@@ -64,7 +64,7 @@ class DbClient:
             return [dict(r._mapping) for r in rows]
 
     def count_distinct(self, table: str, pk: str, where: str) -> int:
-        """P0 核对用:COUNT(DISTINCT 主键)。"""
+        """核对用:COUNT(DISTINCT 主键)。"""
         sql = f"SELECT COUNT(DISTINCT {pk}) AS c FROM {table} WHERE {where}"
         return int(self.query(sql)[0]["c"])
 

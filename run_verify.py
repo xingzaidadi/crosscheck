@@ -1,11 +1,11 @@
 """
-P0 入口:列表/检索类查询闭环。人只给一个页面 URL。
+入口:列表/检索类查询的校验流程。人只给一个页面 URL。
 
 两步(中间隔一次人审,所以拆成两个子命令):
 
   1) probe   —— 打开 URL、抓检索接口、自动建模,产出映射草稿后停下,等人审。
-       python run_p0.py probe --profile <your-site>
-       python run_p0.py probe --url "<页面URL>" [--record] [--table <表名> --pk id]
+       python run_verify.py probe --profile <your-site>
+       python run_verify.py probe --url "<页面URL>" [--record] [--table <表名> --pk id]
 
      产出(默认落在 <workspace> 下):
        captures/<feature>_<ts>.json         全部捕获
@@ -16,7 +16,7 @@ P0 入口:列表/检索类查询闭环。人只给一个页面 URL。
        knowledge_base/query_mapping/<feature>.json(去掉 .draft),verify_status 改 human_verified。
 
   2) reconcile —— 用审过的映射 + 抓到的样本 + 测试库,当场对账出报告。
-       python run_p0.py reconcile [--profile <your-site>]
+       python run_verify.py reconcile [--profile <your-site>]
 
 依赖:<workspace>/config/db.yaml 填好只读连接(reconcile 阶段必需)。
 """
@@ -169,7 +169,7 @@ def cmd_probe(args):
     for note in draft.get("_review_notes", []):
         print(f"    - {note}")
     print(f"    - fixed_where 当前为: {draft['fixed_where']!r}")
-    reconcile_hint = "python run_p0.py reconcile"
+    reconcile_hint = "python run_verify.py reconcile"
     if profile:
         reconcile_hint += f" --profile {profile.site}"
     print(f"\n  审完执行: {reconcile_hint}")
@@ -200,7 +200,7 @@ def cmd_reconcile(args):
     db_name = getattr(args, "db_readonly", None) or (profile.db_readonly if profile else None)
     db = _open_db(db_name)
     if db is None:
-        print("  ✗ config/db.yaml 未配可用的只读连接,无法对账。")
+        print("  ✗ <workspace>/config/db.yaml 未配可用的只读连接,无法对账。")
         sys.exit(2)
     try:
         rec = Reconciler(db, mapping)
@@ -209,7 +209,7 @@ def cmd_reconcile(args):
     finally:
         db.close()
 
-    print("\n这个结果就是决定 P1 投不投的依据:一致 → 参数转SQL可信,可进 P1;"
+    print("\n这个结果就是判断依据:一致 → 参数转 SQL 可信,可进一步做写入类校验;"
           "不一致 → 先查是接口 bug 还是映射错。")
     sys.exit(0 if result.consistent else 1)
 
@@ -223,7 +223,7 @@ def cmd_login(args):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="P0 查询类闭环(通用:--profile 指定站点)")
+    ap = argparse.ArgumentParser(description="列表/检索类查询校验(通用:--profile 指定站点)")
 
     # 所有子命令共享 --workspace(业务数据目录)
     common = argparse.ArgumentParser(add_help=False)

@@ -2,7 +2,7 @@
 接口适配器(API-first)。能走接口校验的别开浏览器:快、稳、零 UI flaky。
 
 适用:落库对不对这类用例,本质是调提交接口 + 查库;浏览器只是触发器,可省。
-P0 列表/检索(查询类)就用它:接口参数 → SQL WHERE → COUNT(DISTINCT) 核对。
+列表/检索(查询类)就用它:接口参数 → SQL WHERE → COUNT(DISTINCT) 核对。
 """
 from __future__ import annotations
 

@@ -31,7 +31,7 @@
 ├── templates/     无业务样例(profile / db / credentials)
 ├── scripts/init_workspace.py  一条命令建 workspace 骨架
 ├── tests/         中性样例域的回归测试
-├── run.py / run_record.py / run_p0.py  入口
+├── run.py / run_record.py / run_verify.py  入口
 └── .gitignore     忽略 /workspace/
 ```
 
@@ -90,12 +90,12 @@ cp workspace/config/credentials.example.yaml workspace/config/credentials.yaml  
 #    按 workspace/profiles/_example.yaml 写 workspace/profiles/<你的站点>.yaml
 ```
 
-查询类闭环(人只给页面 URL;probe 前会自动确保登录态):
+列表/检索校验流程(人只给页面 URL;probe 前会自动确保登录态):
 
 ```bash
-python run_p0.py login --profile <你的站点>       # 建立/刷新登录态(A 模式开浏览器登一次)
-python run_p0.py probe --profile <你的站点>       # 自动登录态→抓接口→建模,产出映射草稿待人审
-python run_p0.py reconcile --profile <你的站点>   # 用审过的映射连库对账出报告
+python run_verify.py login --profile <你的站点>       # 建立/刷新登录态(A 模式开浏览器登一次)
+python run_verify.py probe --profile <你的站点>       # 自动登录态→抓接口→建模,产出映射草稿待人审
+python run_verify.py reconcile --profile <你的站点>   # 用审过的映射连库对账出报告
 ```
 
 > 把 `./workspace` 命名成别的位置时,给每条命令加 `--workspace <dir>`,或设 `VTA_WORKSPACE`。
@@ -104,9 +104,9 @@ python run_p0.py reconcile --profile <你的站点>   # 用审过的映射连库
 
 ```bash
 python tests/test_prober_capture.py     # 抓包 → 自动建模
-python tests/test_p0_reconcile.py       # 参数→SQL / 枚举翻译 / join / 字段映射 / 一致&不一致
+python tests/test_reconcile.py          # 参数→SQL / 枚举翻译 / join / 字段映射 / 一致&不一致
 python tests/test_sentinel_total.py     # 哨兵值跳过 + 总数核对
-python tests/test_p0_pipeline.py        # probe → 人审 → reconcile 整条命令链
+python tests/test_pipeline.py           # probe → 人审 → reconcile 整条命令链
 python tests/test_profile_login.py      # profile 加载 + 声明式登录步骤
 python tests/test_record_report.py      # 录像/截图/接口/报告 四件套
 ```

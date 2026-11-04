@@ -1,5 +1,5 @@
 """
-P0 核心:把检索接口的请求参数,按 query_mapping 知识,确定性地翻译成 SQL WHERE 条件。
+核心:把检索接口的请求参数,按 query_mapping 知识,确定性地翻译成 SQL WHERE 条件。
 
 不让 AI 临场猜。映射规则写在知识库 query_mapping/<feature>.json,人工确认一次。
 支持 op: eq / like / in /（可扩展 gt/lt/between），枚举翻译,固定条件。
@@ -30,7 +30,7 @@ class QueryMapper:
         self.param_map: dict[str, dict] = mapping.get("param_map", {})
         self.fixed_where: str = mapping.get("fixed_where", "").strip()
         # 主表 + 可选别名 + 可选关联表(接口的某些隐含过滤往往落在关联表,
-        # 单表 WHERE 表达不了,必须 join —— 这是 P0 实证得到的结论)。
+        # 单表 WHERE 表达不了,必须 join —— 这是实证得到的结论)。
         self.table: str = mapping.get("table", "")
         self.alias: str = mapping.get("table_alias", "").strip()
         self.pk: str = mapping.get("pk", "id")

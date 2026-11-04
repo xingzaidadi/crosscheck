@@ -6,7 +6,7 @@
   2. Reconciler 在"接口与库一致"时判 consistent。
   3. Reconciler 在"不一致"时判 inconsistent,并指出差在哪组/哪条/哪字段。
 
-跑:python tests/test_p0_reconcile.py
+跑:python tests/test_reconcile.py
 """
 from __future__ import annotations
 

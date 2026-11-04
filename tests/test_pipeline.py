@@ -1,14 +1,14 @@
 """
-P0 整条命令链的端到端验证:probe →(模拟人审)→ reconcile。
+整条命令链的端到端验证:probe →(模拟人审)→ reconcile。
 
-本地起网页 + sqlite 库 + 一个临时 workspace,完整跑一遍 run_p0 的两个子命令,证明:
+本地起网页 + sqlite 库 + 一个临时 workspace,完整跑一遍 run_verify 的两个子命令,证明:
   - probe 能抓取、建模、产出草稿;
   - 人审后 reconcile 能连库对账并给出一致结论。
 
 真实环境里只是把本地 URL 换成目标页面 URL、sqlite 换成测试库、workspace 换成你自己的目录而已。
 全程写在临时 workspace 里,不碰真实业务数据。
 
-跑:python tests/test_p0_pipeline.py
+跑:python tests/test_pipeline.py
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from core.workspace import set_workspace, kb_dir, captures_dir, config_dir  # noqa: E402
-import run_p0  # noqa: E402
+import run_verify  # noqa: E402
 from sqlalchemy import create_engine, text  # noqa: E402
 
 REQUEST_BODY = {"name": "AUTOTEST", "status": ["draft", "active"], "page": 1, "pageSize": 20}
@@ -107,13 +107,13 @@ def main():
     draft = kb_dir() / "query_mapping" / "列表检索.draft.json"
     approved = kb_dir() / "query_mapping" / "列表检索.json"
     try:
-        print("P0 命令链端到端验证:\n")
+        print("命令链端到端验证:\n")
         # ── 步骤 1: probe ──
         print("[1] probe —— 抓取 + 自动建模")
-        run_p0.cmd_probe(Namespace(
+        run_verify.cmd_probe(Namespace(
             url=f"http://127.0.0.1:{port}/", feature="列表检索",
             url_pattern="/api/items/search", trigger=None, record=False,
-            session=str(run_p0.auth_dir() / "test_p0.json"), wait=3000,
+            session=str(run_verify.auth_dir() / "test_session.json"), wait=3000,
             db="app_test", table="items", pk="id", profile=None))
         assert draft.exists(), "草稿未生成"
         d = json.loads(draft.read_text(encoding="utf-8"))
@@ -131,7 +131,7 @@ def main():
         # ── 步骤 3: reconcile ──
         print("[3] reconcile —— 连库对账")
         try:
-            run_p0.cmd_reconcile(Namespace(feature="列表检索", profile=None, db_readonly=None))
+            run_verify.cmd_reconcile(Namespace(feature="列表检索", profile=None, db_readonly=None))
             code = 0
         except SystemExit as e:
             code = e.code

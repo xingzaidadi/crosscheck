@@ -8,7 +8,7 @@
 readonly:
   dsn: "mysql+pymysql://user:password@test-db-host:3306/app_test"
 write:
-  # 未配妥独立测试账号前,留空 → 框架拒绝写操作,P1 不开
+  # 未配妥独立测试账号前,留空 → 框架拒绝写操作,写入类用例不开
   dsn: ""
 
 # 新式多库(按 profile.db.readonly 的名字选库):
