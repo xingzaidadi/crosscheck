@@ -76,6 +76,11 @@ class DbClient:
             result = conn.execute(text(sql), params or {})
             return result.rowcount
 
+    @property
+    def dialect(self) -> str:
+        """只读连接的方言名(sqlite / mysql …)。"""
+        return self._ro.dialect.name
+
     def tables(self) -> list[str]:
         """列出库里所有表名。diff 安全网用它做整库前后对比。"""
         dialect = self._ro.dialect.name
