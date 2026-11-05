@@ -44,6 +44,10 @@ def _norm(v: Any) -> str:
     return "" if v is None else str(v).strip()
 
 
+# 接口空值时,页面常渲染成占位符 —— 视为一致(通用显示约定,非数据差异)
+_PLACEHOLDERS = {"", "-", "—", "--", "/", "n/a", "na", "null", "无", "暂无"}
+
+
 def verify_display(rendered_rows: list[dict], api_response: dict, ui_cfg: dict) -> UiResult:
     """rendered_rows: DOM 抽取的行;api_response: 接口返回;ui_cfg: spec.ui。"""
     dom_to_api = ui_cfg.get("dom_to_api") or {}
@@ -65,6 +69,8 @@ def verify_display(rendered_rows: list[dict], api_response: dict, ui_cfg: dict) 
             # 相等,或接口值出现在页面文本里(页面可能带单位/名称前后缀)即算显示正确
             if dv == av:
                 continue
+            if av == "" and dv.lower() in _PLACEHOLDERS:
+                continue   # 接口空值 + 页面占位符,视为一致
             if av and (av in dv or dv in av):
                 continue
             res.consistent = False
