@@ -40,12 +40,24 @@ def _insert(table: str, name: str, status: str):
     eng.dispose()
 
 
+APPROVED = {}   # 记录审批收到的 businessKey,供断言
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
     def _json(self, obj, code=200):
         self.send_response(code); self.send_header("Content-Type", "application/json"); self.end_headers()
         self.wfile.write(json.dumps(obj).encode("utf-8"))
+
+    def do_GET(self):
+        from urllib.parse import urlparse, parse_qs
+        q = parse_qs(urlparse(self.path).query)
+        if urlparse(self.path).path == "/api/bpm/approve":    # 一键审批(模仿 BPM bpmThree/approve)
+            APPROVED["key"] = (q.get("businessKey") or [""])[0]
+            self._json({"code": 0, "data": "审批结束", "message": "节点全部审批结束"})
+        else:
+            self._json({"code": 404}, 404)
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
@@ -56,6 +68,9 @@ class Handler(BaseHTTPRequestHandler):
             _insert("items", body.get("name", ""), body.get("status", "draft"))
             _insert("audit", body.get("name", ""), "log")
             self._json({"code": 200, "data": {"ok": True}})
+        elif self.path == "/api/items/submit":                # 提交:落库 + 返回 businessKey
+            _insert("items", body.get("name", ""), body.get("status", "submitted"))
+            self._json({"code": 200, "data": {"businessKey": "BK123"}})
         else:
             self._json({"code": 404}, 404)
 
@@ -117,6 +132,23 @@ def main():
         assert r2.verdict is Verdict.FAIL, (r2.verdict, r2.details)
         assert any("未声明的表" in d and "audit" in d for d in r2.details), r2.details
         print("    ✓ diff 安全网: 动了未声明的 audit 表 → FAIL,并指出是 audit")
+
+        # 3) 提交 → 从响应取 businessKey → 一键审批(模仿 BPM approve)
+        s3 = _spec("TCW03", "/api/items/submit", ["items"])
+        s3.request["body"]["status"] = "submitted"
+        s3.assertions["db"][0]["where"] = "name = '{{AUTOTEST_标记值}}' AND status = 'submitted'"
+        s3.assertions["db"][0]["fields"] = {"status": "submitted"}
+        s3.approve = {
+            "method": "GET", "url": "/api/bpm/approve",
+            "body": {"businessKey": "{{businessKey}}", "username": "", "toNode": "", "toNumber": ""},
+            "business_key_from": {"response": "data.businessKey"},
+            "expect": {"body": {"code": 0}},
+        }
+        APPROVED.clear()
+        r3 = run_write_spec(s3, db, registry_path=reg)
+        assert r3.verdict is Verdict.PASS, (r3.verdict, r3.details)
+        assert APPROVED.get("key") == "BK123", f"审批应收到 businessKey=BK123,实际 {APPROVED}"
+        print("    ✓ 提交→取 businessKey=BK123→一键审批通过(动态值模板 + 审批步骤)")
 
         db.close()
     finally:

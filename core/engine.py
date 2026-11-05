@@ -13,8 +13,22 @@ from core.cleaner import Cleaner
 from core.interfaces import CaseResult, DbAssertion, Expected, TestCase, Verdict
 from core.marker import make_marker
 from core.snapshot import SnapshotGuard
-from core.verifier import Verifier
+from core.verifier import Verifier, _dig, _MISSING
 from db.client import DbClient
+
+
+def _resolve_business_key(approve: dict, action, db: DbClient, marker: str):
+    """审批前拿 businessKey:优先从提交响应取(response 路径),否则按 marker 查库。"""
+    bkf = approve.get("business_key_from") or {}
+    if bkf.get("response"):
+        v = _dig(action.api_body, bkf["response"])
+        return None if v is _MISSING else v
+    q = bkf.get("db")
+    if q:
+        where = (q["where"].replace("{{AUTOTEST_标记值}}", marker).replace("{{marker}}", marker))
+        rows = db.query(f"SELECT {q['column']} AS bk FROM {q['table']} WHERE {where}")
+        return rows[0]["bk"] if rows else None
+    return None
 
 
 def spec_to_testcase(spec) -> TestCase:
@@ -56,7 +70,7 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
         adapter.setup(case)
 
         for prep in (case.raw.get("data_prep") or []):
-            r = adapter.call(prep, marker)
+            r = adapter.call(prep, {"marker": marker})
             if not r.ok:
                 details.append(f"data_prep 失败: {r.error or r.api_status}")
 
@@ -65,9 +79,29 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
 
         approve = case.raw.get("approve") or {}
         if approve:
-            ar = adapter.call(approve, marker)
+            bk = _resolve_business_key(approve, action, db, marker)
+            avars = {"marker": marker}
+            if bk is not None:
+                avars["businessKey"] = bk
+            elif approve.get("business_key_from"):
+                details.append("一键审批:未取到 businessKey(检查 business_key_from)")
+            # 审批走独立鉴权 session(BPM 主机与业务站不同域);没配则复用主 adapter
+            appr_session = approve.get("session")
+            if appr_session:
+                appr = ApiAdapter(base_url=approve.get("base_url", ""), session_file=appr_session)
+                try:
+                    appr.setup()
+                    ar = appr.call(approve, avars)
+                finally:
+                    appr.teardown()
+            else:
+                ar = adapter.call(approve, avars)
             if not ar.ok:
                 details.append(f"一键审批失败: {ar.error or ar.api_status}")
+            for path, val in ((approve.get("expect") or {}).get("body") or {}).items():
+                got = _dig(ar.api_body, path)
+                if _MISSING is got or str(got) != str(val):
+                    details.append(f"审批响应 {path}: 预期 {val!r} vs 实际 {got!r}")
 
         verdict, vdetails = verifier.verify(case, marker, action)
         details += vdetails

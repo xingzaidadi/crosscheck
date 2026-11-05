@@ -44,30 +44,34 @@ class ApiAdapter(BaseAdapter):
         return {c["name"]: c["value"] for c in (state.get("cookies") or []) if "name" in c}
 
     @staticmethod
-    def _inject_marker(body: Any, marker_field: str | None, marker: str) -> Any:
-        if body is None:
-            return None
+    def _render(obj: Any, vars: dict) -> Any:
+        """把 obj 里的 {{key}} 占位换成 vars[key]。{{AUTOTEST_标记值}} 是 marker 的别名。"""
+        subs = dict(vars)
+        if "marker" in subs:
+            subs.setdefault("AUTOTEST_标记值", subs["marker"])
         def walk(x):
             if isinstance(x, str):
-                return x.replace(_MARKER_PH, marker)
+                for k, v in subs.items():
+                    x = x.replace("{{" + k + "}}", str(v))
+                return x
             if isinstance(x, dict):
                 return {k: walk(v) for k, v in x.items()}
             if isinstance(x, list):
                 return [walk(v) for v in x]
             return x
-        b = walk(copy.deepcopy(body))
-        if marker_field and isinstance(b, dict):
-            b[marker_field] = marker
-        return b
+        return walk(copy.deepcopy(obj)) if obj is not None else None
 
-    def call(self, request: dict, marker: str) -> ActionResult:
-        """发一个请求(主动作 / 造数 / 审批都走它)。marker 注入 body。"""
+    def call(self, request: dict, vars: dict) -> ActionResult:
+        """发一个请求(主动作 / 造数 / 审批都走它)。vars 里的值注入 url/body 的 {{占位}}。"""
         if self._client is None:
             self.setup()
         method = (request.get("method") or "GET").upper()
-        url = request.get("url") or "/"
+        url = self._render(request.get("url") or "/", vars)
         headers = request.get("headers") or {}
-        body = self._inject_marker(request.get("body"), request.get("marker_field"), marker)
+        body = self._render(request.get("body"), vars)
+        marker_field = request.get("marker_field")
+        if marker_field and isinstance(body, dict) and "marker" in vars:
+            body[marker_field] = vars["marker"]
         try:
             if method in ("GET", "DELETE"):
                 resp = self._client.request(method, url, params=body or None, headers=headers)
@@ -88,7 +92,7 @@ class ApiAdapter(BaseAdapter):
             return ActionResult(ok=False, error="spec 无 request,无法执行写动作")
         if raw.get("marker_field") and "marker_field" not in request:
             request["marker_field"] = raw["marker_field"]
-        return self.call(request, marker)
+        return self.call(request, {"marker": marker})
 
     def teardown(self) -> None:
         if self._client is not None:
