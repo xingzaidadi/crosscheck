@@ -1,10 +1,13 @@
 """
 清理 + 登记册:数据隔离三件套之一,外加"清理失败兜底"。
 
-- 登记册持久化:每条造数登记 {marker, 表, 状态},清理成功才销账。
+- 登记册持久化:每条造数登记 {marker, 表+标记列, 状态},清理成功才销账。
 - 失败也清;清理失败(超时/外键/权限)标 cleanup_pending,不中断后续用例。
 - 每次执行前先 retry_pending() 扫残留重试;清不掉的集中告警。
 - 哨兵快照需排除 cleanup_pending 的已知标记值,避免误报脏库。
+
+清理目标从用例的 raw["cleanup_targets"] 来:[{table, column}],子表在前、主表在后(避外键)。
+按 marker 反删:DELETE FROM <table> WHERE <column> LIKE '%<marker>%'。
 """
 from __future__ import annotations
 
@@ -20,23 +23,60 @@ class Cleaner:
         self.db = db
         self.registry_path = Path(registry_path)
 
+    def _load(self) -> dict:
+        if self.registry_path.exists():
+            try:
+                return json.loads(self.registry_path.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                return {}
+        return {}
+
+    def _save(self, reg: dict) -> None:
+        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
+        self.registry_path.write_text(
+            json.dumps(reg, ensure_ascii=False, indent=2), encoding="utf-8")
+
     def register(self, case: TestCase, marker: str) -> None:
-        """执行前登记:本次将在哪些表按 marker 造数。"""
-        # TODO: 把 {marker, feature, 涉及表, status=pending} 落盘到登记册
-        ...
+        """执行前登记:本次将在哪些表按 marker 造数(status=pending)。"""
+        targets = (case.raw or {}).get("cleanup_targets") or []
+        reg = self._load()
+        reg[marker] = {"feature": case.feature, "targets": targets, "status": "pending"}
+        self._save(reg)
 
     def cleanup(self, marker: str) -> bool:
-        """按 marker 反删本次造数。成功销账,失败标 cleanup_pending。返回是否清干净。"""
-        # TODO: 对登记的每张表 DELETE ... WHERE <标记列> LIKE marker
-        # TODO: 失败不抛,标 pending,返回 False
-        return True
+        """按 marker 反删本次造数。全清成功则销账;失败标 cleanup_pending,返回 False。"""
+        reg = self._load()
+        entry = reg.get(marker)
+        if not entry:
+            return True
+        ok, errors = True, []
+        for t in entry.get("targets", []):
+            table, col = t.get("table"), t.get("column")
+            if not table or not col:
+                continue
+            try:
+                self.db.execute_write(
+                    f"DELETE FROM {table} WHERE {col} LIKE :m", {"m": f"%{marker}%"})
+            except Exception as e:  # noqa: BLE001  清理失败不抛,标 pending
+                ok = False
+                errors.append(f"{table}: {e}")
+        if ok:
+            reg.pop(marker, None)
+        else:
+            entry["status"] = "cleanup_pending"
+            entry["errors"] = errors
+            reg[marker] = entry
+        self._save(reg)
+        return ok
 
     def retry_pending(self) -> list[str]:
-        """执行前扫描上次没清掉的残留并重试;返回仍清不掉的 marker 列表(供告警 + diff 排除)。"""
-        # TODO
-        return []
+        """执行前扫上次残留重试;返回仍清不掉的 marker(供告警 + diff 排除)。"""
+        still = []
+        for marker in list(self._load().keys()):
+            if not self.cleanup(marker):
+                still.append(marker)
+        return still
 
     def known_markers(self) -> list[str]:
-        """返回当前所有 pending 残留 marker,给 SnapshotGuard 排除,避免误报脏库。"""
-        # TODO
-        return []
+        """当前所有残留 marker,给 SnapshotGuard 排除,避免误报脏库。"""
+        return list(self._load().keys())

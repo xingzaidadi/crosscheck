@@ -21,7 +21,7 @@ import yaml
 _WRITE_KW = re.compile(
     r"新建|提交|暂存|创建|保存|受理|审批|撤回|驳回|编辑|修改|删除|作废|退回|关闭|转办|发起|批量|造数|初始化")
 _QUERY_KW = re.compile(r"查询|列表|检索|查看|详情|筛选|搜索|分页|导出|融合|聚合")
-# 接口路径:形如 /demand/api/demand/draft(至少两段且含 api)
+# 接口路径:形如 /svc/api/order/create(至少两段且含 api)
 _ENDPOINT = re.compile(r"/[A-Za-z0-9_\-]+(?:/[A-Za-z0-9_\-{}]+)+")
 
 
@@ -44,10 +44,17 @@ class ExecSpec:
     # 通用执行要素:
     endpoints: list[str] = field(default_factory=list)
     inputs: dict[str, Any] = field(default_factory=dict)
-    assertions: dict[str, Any] = field(default_factory=dict)  # {response:{...}, db:[{table,where,row_count,fields}]}
-    data_prep: list[Any] = field(default_factory=list)
-    cleanup: list[Any] = field(default_factory=list)
-    allowed_tables: list[str] = field(default_factory=list)
+    assertions: dict[str, Any] = field(default_factory=dict)  # {response:{status,body:{path:val}}, db:[{table,where,row_count,fields}]}
+    data_prep: list[Any] = field(default_factory=list)        # 造前置状态的请求列表(每项同 request 结构)
+    cleanup: list[Any] = field(default_factory=list)          # 清理目标 [{table, column}](按 marker 反删,子表在前)
+    allowed_tables: list[str] = field(default_factory=list)   # diff 安全网:本次允许改动的表
+
+    # 写入(api)模式执行要素:
+    base_url: str = ""                                        # 接口基址(默认取 profile.base_url)
+    session: str = ""                                         # 登录态 storageState 文件(复用 cookie 鉴权)
+    request: dict[str, Any] = field(default_factory=dict)     # 主写动作 {method,url,body,headers}
+    marker_field: str = ""                                    # body 里放唯一标记的字段名(造数可识别/可清理)
+    approve: dict[str, Any] = field(default_factory=dict)     # 一键审批请求(可选,同 request 结构)
 
     source_row: int = 0
     needs_review: list[str] = field(default_factory=list)

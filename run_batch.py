@@ -28,12 +28,13 @@ except Exception:
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from core.workspace import set_workspace, kb_dir, captures_dir  # noqa: E402
+from core.workspace import set_workspace, workspace_root, kb_dir, captures_dir  # noqa: E402
 from core.case_source import read_cases  # noqa: E402
 from core.spec import ExecSpec, from_raw, load_specs  # noqa: E402
 from core.reporter import Reporter  # noqa: E402
 from core.interfaces import CaseResult, Verdict  # noqa: E402
 from core.reconciler import Reconciler  # noqa: E402
+from core import engine  # noqa: E402
 from core.config import db_config, db_params  # noqa: E402
 from db.client import DbClient  # noqa: E402
 
@@ -73,22 +74,67 @@ def _run_reconcile(spec: ExecSpec) -> tuple[Verdict, list[str]]:
     return (Verdict.PASS, ["对账一致"]) if res.consistent else (Verdict.FAIL, res.render().splitlines())
 
 
+def _open_rw(spec: ExecSpec):
+    """开读写连接。返回 (DbClient|None, has_write)。写账号来自 db.yaml default_write。"""
+    cfg = db_config()
+    if cfg.get("databases"):
+        ro_name = spec.db or cfg.get("default_readonly")
+        wr_name = cfg.get("default_write") or (f"{spec.db}_write" if spec.db else None)
+        ro = db_params(ro_name) if ro_name else None
+        wr = db_params(wr_name) if wr_name else None
+        if ro:
+            return DbClient(readonly_params=ro, write_params=wr), bool(wr)
+    ro_dsn = (cfg.get("readonly") or {}).get("dsn", "")
+    wr_dsn = (cfg.get("write") or {}).get("dsn", "")
+    if ro_dsn and "TODO" not in ro_dsn:
+        return DbClient(dsn_readonly=ro_dsn, dsn_write=wr_dsn or None), bool(wr_dsn and "TODO" not in wr_dsn)
+    return None, False
+
+
 def execute(spec: ExecSpec, dry_run: bool) -> CaseResult:
     t0 = time.time()
-    verdict, details = Verdict.SKIP, []
     if dry_run:
-        details = [f"dry-run:仅草拟/校验(kind={spec.kind}, mode={spec.mode}, 接口={spec.endpoints or '—'})"]
-    elif spec.verify_status != "human_verified":
-        details = ["未人审(draft):补全 assertions / feature 并转 human_verified 后再执行"]
-    elif spec.mode == "reconcile":
+        return CaseResult(
+            case_id=spec.case_id, verdict=Verdict.SKIP, duration_s=round(time.time() - t0, 3),
+            title=spec.title, kind=spec.kind, mode=spec.mode,
+            details=[f"dry-run:仅草拟/校验(kind={spec.kind}, mode={spec.mode}, 接口={spec.endpoints or '—'})"])
+
+    if spec.verify_status != "human_verified":
+        return CaseResult(
+            case_id=spec.case_id, verdict=Verdict.SKIP, duration_s=round(time.time() - t0, 3),
+            title=spec.title, kind=spec.kind, mode=spec.mode,
+            details=["未人审(draft):补全 assertions / request 并转 human_verified 后再执行"])
+
+    if spec.mode == "reconcile":
         verdict, details = _run_reconcile(spec)
-    else:
-        details = [f"{spec.mode} 模式(写入/UI)待 Phase 2 实现"]
-    return CaseResult(
-        case_id=spec.case_id, verdict=verdict, details=details,
-        duration_s=round(time.time() - t0, 3),
-        title=spec.title, kind=spec.kind, mode=spec.mode,
-    )
+        return CaseResult(
+            case_id=spec.case_id, verdict=verdict, details=details, duration_s=round(time.time() - t0, 3),
+            title=spec.title, kind=spec.kind, mode=spec.mode)
+
+    if spec.mode in ("api", "write"):
+        if not spec.request:
+            return CaseResult(case_id=spec.case_id, verdict=Verdict.SKIP, title=spec.title,
+                              kind=spec.kind, mode=spec.mode, duration_s=round(time.time() - t0, 3),
+                              details=["未建模:缺 request(写动作),补全后再执行"])
+        db, has_write = _open_rw(spec)
+        if db is None:
+            return CaseResult(case_id=spec.case_id, verdict=Verdict.ENV_ERROR, title=spec.title,
+                              kind=spec.kind, mode=spec.mode, duration_s=round(time.time() - t0, 3),
+                              details=["未配可用库(workspace/config/db.yaml)"])
+        if not has_write:
+            db.close()
+            return CaseResult(case_id=spec.case_id, verdict=Verdict.SKIP, title=spec.title,
+                              kind=spec.kind, mode=spec.mode, duration_s=round(time.time() - t0, 3),
+                              details=["未配写库账号(db.yaml default_write):写入类暂不执行,避免留脏数据"])
+        try:
+            return engine.run_write_spec(
+                spec, db, registry_path=workspace_root() / ".cleanup_registry.json")
+        finally:
+            db.close()
+
+    return CaseResult(case_id=spec.case_id, verdict=Verdict.SKIP, title=spec.title,
+                      kind=spec.kind, mode=spec.mode, duration_s=round(time.time() - t0, 3),
+                      details=[f"{spec.mode} 模式暂不支持"])
 
 
 def main():

@@ -76,6 +76,22 @@ class DbClient:
             result = conn.execute(text(sql), params or {})
             return result.rowcount
 
+    def tables(self) -> list[str]:
+        """列出库里所有表名。diff 安全网用它做整库前后对比。"""
+        dialect = self._ro.dialect.name
+        if dialect == "sqlite":
+            rows = self.query(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+            return [r["name"] for r in rows]
+        rows = self.query(
+            "SELECT TABLE_NAME AS name FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_SCHEMA = DATABASE()")
+        return [r["name"] for r in rows]
+
+    def row_count(self, table: str) -> int:
+        """表行数(count(*))。快照用。"""
+        return int(self.query(f"SELECT COUNT(*) AS c FROM {table}")[0]["c"])
+
     def columns(self, table: str) -> list[str]:
         """列出表的字段名。自动建模把接口参数往这些列上匹配。"""
         dialect = self._ro.dialect.name

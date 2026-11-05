@@ -51,7 +51,7 @@ class RawCase:
 
     @property
     def category(self) -> str:
-        """所属模块路径的末两级,如 '需求创建与提交/状态守卫'。"""
+        """所属模块路径的末两级,如 '模块/子模块'。"""
         parts = [s for s in self.module.replace("\\", "/").split("/") if s.strip()]
         return "/".join(parts[-2:]) if parts else ""
 
