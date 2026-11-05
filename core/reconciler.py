@@ -142,6 +142,12 @@ class Reconciler:
             node = self._dig(resp, path)
             if isinstance(node, list):
                 return node
+        # 详情类:data 本身是单个对象(含主键字段)→ 当作一行比
+        data = self._dig(resp, "data")
+        if isinstance(data, dict):
+            pk_api = self.response_field_map.get(self.pk, self.pk)
+            if pk_api in data:
+                return [data]
         return []
 
     @staticmethod
