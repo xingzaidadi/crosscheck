@@ -56,6 +56,11 @@ class ExecSpec:
     marker_field: str = ""                                    # body 里放唯一标记的字段名(造数可识别/可清理)
     approve: dict[str, Any] = field(default_factory=dict)     # 一键审批请求(可选,同 request 结构)
 
+    # UI 渲染校验(mode=ui / reconcile 附加):证明"页面显示"== 接口(再接库对账 = 三层对齐)
+    #   {page_url, url_pattern, actions[], extract:{rows_selector, columns:{domField:cellSelector}},
+    #    dom_to_api:{domField:apiField}, api_rows_path, screenshot}
+    ui: dict[str, Any] = field(default_factory=dict)
+
     source_row: int = 0
     needs_review: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)

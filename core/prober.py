@@ -58,6 +58,7 @@ class Prober:
         self.captures: list[Capture] = []
         self.video_path: str | None = None
         self.screenshots: list[dict] = []   # [{name, path}]
+        self.rendered_rows: list[dict] = []  # DOM 实际显示的行(UI 渲染校验用)
 
     # ───────────────────────── 抓取 ─────────────────────────
 
@@ -68,6 +69,7 @@ class Prober:
         wait_ms: int = 4000,
         record: bool = False,
         actions: list[dict] | None = None,
+        extract: dict | None = None,
     ) -> list[Capture]:
         """
         打开 page_url,拦截流量,可选录视频/截图/跑声明式检索动作。
@@ -139,6 +141,26 @@ class Prober:
                         print(f"  触发检索点击失败(选择器可能失效): {e}")
                 page.wait_for_timeout(wait_ms)
                 shot("after_search")
+
+            # UI 渲染校验:按声明式规则读 DOM 里"实际显示"的行(field→单元格文本)
+            if extract:
+                try:
+                    self.rendered_rows = page.evaluate(
+                        """(spec) => {
+                          const rows = Array.from(document.querySelectorAll(spec.rows_selector));
+                          return rows.map(r => {
+                            const o = {};
+                            for (const k in spec.columns) {
+                              const sel = spec.columns[k];
+                              const el = sel ? r.querySelector(sel) : r;
+                              o[k] = el ? (el.innerText || '').trim() : null;
+                            }
+                            return o;
+                          });
+                        }""", extract)
+                    shot("rendered")
+                except Exception as e:  # noqa: BLE001
+                    print(f"  DOM 抽取失败(检查 rows_selector/columns): {e}")
 
             # 保存/更新 Session 供回放复用(只在自己拥有的 context 上存;existing 模式是用户的真浏览器,不碰)
             if self.session_file and owns_context:

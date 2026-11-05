@@ -66,6 +66,9 @@ class Reporter:
             color = _COLOR.get(r.verdict, "#57606a")
             label = _LABEL.get(r.verdict, r.verdict.value)
             details = "<br>".join(html.escape(d) for d in r.details) or "—"
+            if getattr(r, "evidence", ""):
+                ev = r.evidence.replace("\\", "/")
+                details += f"<br><a href='file:///{html.escape(ev)}'>页面截图</a>"
             rows.append(
                 f"<tr><td>{html.escape(r.case_id)}</td>"
                 f"<td>{html.escape(r.title)}</td>"

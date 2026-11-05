@@ -34,7 +34,7 @@ from core.spec import ExecSpec, from_raw, load_specs  # noqa: E402
 from core.reporter import Reporter  # noqa: E402
 from core.interfaces import CaseResult, Verdict  # noqa: E402
 from core.reconciler import Reconciler  # noqa: E402
-from core import engine  # noqa: E402
+from core import engine, ui_check  # noqa: E402
 from core.config import db_config, db_params  # noqa: E402
 from db.client import DbClient  # noqa: E402
 
@@ -145,6 +145,14 @@ def execute(spec: ExecSpec, dry_run: bool) -> CaseResult:
                 spec, db, registry_path=workspace_root() / ".cleanup_registry.json")
         finally:
             db.close()
+
+    if spec.mode == "ui":
+        db = _open_db(spec.db)
+        try:
+            return ui_check.run_ui_spec(spec, db)
+        finally:
+            if db is not None:
+                db.close()
 
     return CaseResult(case_id=spec.case_id, verdict=Verdict.SKIP, title=spec.title,
                       kind=spec.kind, mode=spec.mode, duration_s=round(time.time() - t0, 3),
