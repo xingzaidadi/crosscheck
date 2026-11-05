@@ -72,6 +72,8 @@ def _evidence_html(ev: dict, run_dir: Path) -> str:
         v = ev["video"]
         out.append(f"<div><a href='{_esc(v)}'>操作录像 {_esc(v)}</a><br>"
                    f"<video controls width='520' src='{_esc(v)}'></video></div>")
+    for d in ev.get("data", []):
+        out.append(f"<div><a href='{_esc(d)}'>{_esc(d)}</a></div>")
     out.append("</div>")
     return "".join(out)
 

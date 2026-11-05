@@ -171,7 +171,8 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path) -> CaseResult:
             db.close()
             return _skip(spec, t0, "未配写库账号(db.yaml default_write):写入类暂不执行,避免留脏数据")
         try:
-            cr = engine.run_write_spec(spec, db, registry_path=workspace_root() / ".cleanup_registry.json")
+            cr = engine.run_write_spec(spec, db, run_dir=run_dir,
+                                       registry_path=workspace_root() / ".cleanup_registry.json")
         finally:
             db.close()
         if not cr.report:

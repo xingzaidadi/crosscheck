@@ -46,8 +46,10 @@ class ExecSpec:
     inputs: dict[str, Any] = field(default_factory=dict)
     assertions: dict[str, Any] = field(default_factory=dict)  # {response:{status,body:{path:val}}, db:[{table,where,row_count,fields}]}
     data_prep: list[Any] = field(default_factory=list)        # 造前置状态的请求列表(每项同 request 结构)
-    cleanup: list[Any] = field(default_factory=list)          # 清理目标 [{table, column}](按 marker 反删,子表在前)
+    cleanup: list[Any] = field(default_factory=list)          # 清理目标(按 marker 反删,子表在前):
+                                                              #   {table,column} 直删;{table,key,parent:{table,key_col,marker_col}} 按父单号删子表
     allowed_tables: list[str] = field(default_factory=list)   # diff 安全网:本次允许改动的表
+    diff_full_scan: bool = True                               # True=整库 diff;False=只盯 allowed∪断言表(级联写入场景免误报)
 
     # 写入(api)模式执行要素:
     base_url: str = ""                                        # 接口基址(默认取 profile.base_url)
@@ -55,6 +57,7 @@ class ExecSpec:
     request: dict[str, Any] = field(default_factory=dict)     # 主写动作 {method,url,body,headers}
     marker_field: str = ""                                    # body 里放唯一标记的字段名(造数可识别/可清理)
     approve: dict[str, Any] = field(default_factory=dict)     # 一键审批请求(可选,同 request 结构)
+    verify_poll: dict[str, Any] = field(default_factory=dict)  # 异步验库等待 {timeout_s, interval_s};空=只查一次
 
     # UI 渲染校验(mode=ui / reconcile 附加):证明"页面显示"== 接口(再接库对账 = 三层对齐)
     #   {page_url, url_pattern, actions[], extract:{rows_selector, columns:{domField:cellSelector}},

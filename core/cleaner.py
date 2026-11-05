@@ -50,13 +50,24 @@ class Cleaner:
         if not entry:
             return True
         ok, errors = True, []
+        # 子表在前、主表在后(避外键)。两种目标:
+        #   直接:{table, column}            —— DELETE WHERE column LIKE %marker%
+        #   父查:{table, key, parent:{table, key_col, marker_col}}
+        #        —— DELETE WHERE key IN (SELECT key_col FROM parent WHERE marker_col LIKE %marker%)
         for t in entry.get("targets", []):
-            table, col = t.get("table"), t.get("column")
-            if not table or not col:
+            table = t.get("table")
+            if not table:
                 continue
             try:
-                self.db.execute_write(
-                    f"DELETE FROM {table} WHERE {col} LIKE :m", {"m": f"%{marker}%"})
+                parent = t.get("parent")
+                if parent:
+                    sql = (f"DELETE FROM {table} WHERE {t['key']} IN "
+                           f"(SELECT {parent['key_col']} FROM {parent['table']} "
+                           f"WHERE {parent['marker_col']} LIKE :m)")
+                    self.db.execute_write(sql, {"m": f"%{marker}%"})
+                elif t.get("column"):
+                    self.db.execute_write(
+                        f"DELETE FROM {table} WHERE {t['column']} LIKE :m", {"m": f"%{marker}%"})
             except Exception as e:  # noqa: BLE001  清理失败不抛,标 pending
                 ok = False
                 errors.append(f"{table}: {e}")
