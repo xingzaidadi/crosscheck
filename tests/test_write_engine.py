@@ -53,7 +53,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         from urllib.parse import urlparse, parse_qs
         q = parse_qs(urlparse(self.path).query)
-        if urlparse(self.path).path == "/api/bpm/approve":    # 一键审批(模仿 BPM bpmThree/approve)
+        if urlparse(self.path).path == "/api/bpm/approve":    # 一键审批(模拟 BPM 审批接口)
             APPROVED["key"] = (q.get("businessKey") or [""])[0]
             self._json({"code": 0, "data": "审批结束", "message": "节点全部审批结束"})
         else:
