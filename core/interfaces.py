@@ -105,3 +105,4 @@ class CaseResult:
     mode: str = ""
     evidence: str = ""     # 截图证据路径,报告里链接
     video: str = ""        # 操作过程录像(webm)路径,报告里内嵌/链接
+    report: dict = field(default_factory=dict)  # 结构化证据(做了什么/预期/实际/表/SQL/数据),富报告渲染用

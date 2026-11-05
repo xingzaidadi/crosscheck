@@ -102,7 +102,7 @@ def main():
         try:
             r1 = run_ui_spec(_spec("UI01", "/good", base), db=None)
             assert r1.verdict is Verdict.PASS, (r1.verdict, r1.details)
-            assert any("页面渲染校验" in x and "一致" in x for x in r1.details), r1.details
+            assert any("渲染校验" in x and "一致" in x for x in r1.details), r1.details
             print("    ✓ 正常页: 页面显示 2 行 == 接口返回 → PASS")
             assert r1.video and os.path.exists(r1.video), f"无头也应录到视频: {r1.video!r}"
             print("    ✓ 无头录到操作视频:", os.path.basename(r1.video))

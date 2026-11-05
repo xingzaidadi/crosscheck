@@ -16,6 +16,7 @@ class UiResult:
     consistent: bool
     diffs: list[str] = field(default_factory=list)
     checked_rows: int = 0
+    pairs: list[dict] = field(default_factory=list)   # [{row, field, page, api, ok}] 逐字段页面vs接口
 
     def render(self) -> str:
         head = "一致 ✅" if self.consistent else "不一致 ❌"
@@ -68,14 +69,12 @@ def verify_display(rendered_rows: list[dict], api_response: dict, ui_cfg: dict) 
         for dom_field, api_field in dom_to_api.items():
             dv = _norm(dom.get(dom_field))
             av = _norm(_dig(api, api_field) if "." in api_field else (api.get(api_field) if isinstance(api, dict) else None))
-            # 相等,或接口值出现在页面文本里(页面可能带单位/名称前后缀)即算显示正确
-            if dv == av:
-                continue
-            if av == "" and dv.lower() in _PLACEHOLDERS:
-                continue   # 接口空值 + 页面占位符,视为一致
-            # 注意:dv/av 任一为空都不能算匹配(空串是任何串的子串,会误判)
-            if av and dv and (av in dv or dv in av):
-                continue
-            res.consistent = False
-            res.diffs.append(f"第{i + 1}行 {dom_field}: 页面='{dv}' vs 接口='{av}'")
+            # 相等;或接口空值+页面占位符;或(两者非空且)接口值出现在页面文本里(页面可能带单位/名称)即算显示正确
+            ok = (dv == av
+                  or (av == "" and dv.lower() in _PLACEHOLDERS)
+                  or (bool(av) and bool(dv) and (av in dv or dv in av)))
+            res.pairs.append({"row": i + 1, "field": dom_field, "page": dv, "api": av, "ok": ok})
+            if not ok:
+                res.consistent = False
+                res.diffs.append(f"第{i + 1}行 {dom_field}: 页面='{dv}' vs 接口='{av}'")
     return res

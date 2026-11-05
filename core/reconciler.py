@@ -24,6 +24,14 @@ class ReconcileResult:
     checked_groups: int = 0
     checked_rows: int = 0
     feature: str = ""                                       # 功能名,用于渲染标题
+    # ── 结构化证据(给报告详列:查了什么表 / SQL / 数/字段样本) ──
+    table: str = ""                                         # 主表(含别名)
+    from_clause: str = ""                                   # 实际 FROM(含 join)
+    count_sql: str = ""                                     # 执行的总数 SQL
+    where_sql: str = ""                                     # 翻译出的 WHERE
+    api_total: Any = None                                   # 接口总数
+    db_total: Any = None                                    # 库 COUNT(DISTINCT pk)
+    field_samples: list[dict] = field(default_factory=list)  # [{pk, field, api, db, ok}]
 
     def render(self) -> str:
         head = "一致 ✅" if self.consistent else "不一致 ❌"
@@ -52,6 +60,9 @@ class Reconciler:
         where = self.mapper.build_where(api_params)
         from_clause = self.mapper.from_clause
         pk_ref = self.mapper.pk_ref
+        result.table = self.table
+        result.from_clause = from_clause
+        result.where_sql = where.sql
 
         # ── 1. 分组数量核对 ──
         gcfg = self.mapping.get("group_by")
@@ -80,6 +91,9 @@ class Reconciler:
             api_total = self._dig(api_response, tcfg["response_path"])
             sql = f"SELECT COUNT(DISTINCT {pk_ref}) AS c FROM {from_clause} WHERE {where.sql}"
             db_total = int(self.db.query(sql, where.params)[0]["c"])
+            result.count_sql = sql
+            result.api_total = api_total
+            result.db_total = db_total
             result.checked_groups = max(result.checked_groups, 1)
             if api_total is None:
                 result.consistent = False
@@ -116,7 +130,10 @@ class Reconciler:
                 for col in fields:                            # col 是库列名
                     api_v = self._api_value(row, col)
                     db_v = db_row.get(col)
-                    if not self._eq(api_v, db_v):
+                    ok = self._eq(api_v, db_v)
+                    result.field_samples.append(
+                        {"pk": pk_val, "field": col, "api": api_v, "db": db_v, "ok": ok})
+                    if not ok:
                         result.consistent = False
                         api_field = self.response_field_map.get(col, col)
                         result.field_diffs.append(
