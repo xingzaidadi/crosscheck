@@ -58,12 +58,26 @@ def _run_reconcile(spec: ExecSpec) -> tuple[Verdict, list[str]]:
     sample_path = Path(spec.sample) if spec.sample else captures_dir() / f"{feature}_picked.json"
     if not mapping_path.exists():
         return Verdict.SKIP, [f"未建模:缺映射 {mapping_path.name}(先 run_verify probe + 人审)"]
-    if not sample_path.exists():
-        return Verdict.SKIP, [f"缺抓包样本 {sample_path.name}(先 run_verify probe)"]
     mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
-    picked = json.loads(sample_path.read_text(encoding="utf-8"))
-    api_params = picked.get("request_body") or picked.get("query_params") or {}
-    api_resp = picked.get("response_json") or {}
+    if spec.request:
+        # 用登录态现调接口(带本用例的筛选),抓和比同刻,无陈旧样本漂移
+        from adapters.api_adapter import ApiAdapter
+        ad = ApiAdapter(base_url=spec.base_url, session_file=spec.session)
+        try:
+            ad.setup()
+            r = ad.call(spec.request, {})
+        finally:
+            ad.teardown()
+        if not r.ok:
+            return Verdict.ENV_ERROR, [f"接口调用失败 status={r.api_status}: {str(r.api_body)[:120]}"]
+        api_params = spec.request.get("body") or {}
+        api_resp = r.api_body or {}
+    else:
+        if not sample_path.exists():
+            return Verdict.SKIP, [f"缺抓包样本 {sample_path.name}(配 request 现调,或先 run_verify probe)"]
+        picked = json.loads(sample_path.read_text(encoding="utf-8"))
+        api_params = picked.get("request_body") or picked.get("query_params") or {}
+        api_resp = picked.get("response_json") or {}
     db = _open_db(spec.db)
     if db is None:
         return Verdict.ENV_ERROR, ["未配可用只读库(workspace/config/db.yaml),无法对账"]
