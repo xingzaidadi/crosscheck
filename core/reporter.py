@@ -67,8 +67,12 @@ class Reporter:
             label = _LABEL.get(r.verdict, r.verdict.value)
             details = "<br>".join(html.escape(d) for d in r.details) or "—"
             if getattr(r, "evidence", ""):
-                ev = r.evidence.replace("\\", "/")
+                ev = str(r.evidence).replace("\\", "/")
                 details += f"<br><a href='file:///{html.escape(ev)}'>页面截图</a>"
+            if getattr(r, "video", ""):
+                vp = str(r.video).replace("\\", "/")
+                details += (f"<br><a href='file:///{html.escape(vp)}'>操作录像(webm)</a>"
+                            f"<br><video controls width='320' src='file:///{html.escape(vp)}'></video>")
             rows.append(
                 f"<tr><td>{html.escape(r.case_id)}</td>"
                 f"<td>{html.escape(r.title)}</td>"

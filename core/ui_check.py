@@ -30,8 +30,10 @@ def run_ui_spec(spec, db: DbClient | None = None) -> CaseResult:
 
     rundir = artifacts_dir() / f"ui_{spec.case_id}_{int(time.time())}"
     headed = bool(ui.get("headed"))          # 有头=弹可见窗口(给人看);默认无头
+    want_video = ui.get("video", True)       # 默认录操作过程(无头也能录 webm)
     prober = Prober(url_pattern=ui.get("url_pattern", ""), session_file=spec.session,
-                    headless=not headed, launch_mode="isolated", artifacts_dir=str(rundir))
+                    headless=not headed, launch_mode="isolated", artifacts_dir=str(rundir),
+                    video_dir=str(rundir) if want_video else None)
     details: list[str] = []
     verdict = Verdict.PASS
     try:
@@ -72,4 +74,5 @@ def run_ui_spec(spec, db: DbClient | None = None) -> CaseResult:
                 prober.screenshots[-1]["path"] if prober.screenshots else "")
     return CaseResult(case_id=spec.case_id, verdict=verdict, details=details,
                       duration_s=round(time.time() - t0, 3),
-                      title=spec.title, kind=spec.kind, mode=spec.mode, evidence=shot)
+                      title=spec.title, kind=spec.kind, mode=spec.mode,
+                      evidence=shot, video=prober.video_path or "")

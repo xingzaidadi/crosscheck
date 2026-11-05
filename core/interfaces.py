@@ -103,4 +103,5 @@ class CaseResult:
     title: str = ""
     kind: str = ""
     mode: str = ""
-    evidence: str = ""     # 证据文件(如页面截图)路径,报告里链接
+    evidence: str = ""     # 截图证据路径,报告里链接
+    video: str = ""        # 操作过程录像(webm)路径,报告里内嵌/链接
