@@ -28,6 +28,15 @@ from core.interfaces import Verdict  # noqa: E402
 
 RECORDS = [{"name": "条目甲", "status": "active"}, {"name": "条目乙", "status": "draft"}]
 RESP = {"code": 200, "data": {"records": RECORDS, "total": 2}}
+DETAIL_RESP = {"code": 200, "data": {"itemName": "甲物", "itemStatus": "启用"}}
+DETAIL = """<!doctype html><html><head><meta charset=utf-8></head><body>
+<script>
+fetch('/api/items/detail').then(r=>r.json()).then(j=>{
+  const d=j.data;
+  document.body.innerHTML += '<span class=lab>名称</span><span class=val>'+d.itemName+'</span>'
+                           + '<span class=lab>状态</span><span class=val>'+d.itemStatus+'</span>';
+});
+</script></body></html>"""
 
 def _page(name_expr):
     return ("""<!doctype html><html><head><meta charset=utf-8></head><body>
@@ -51,7 +60,10 @@ BAD = _page("'错误值'")          # 故障:名字渲染成固定错值
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_GET(self):
-        html = GOOD if self.path.startswith("/good") else BAD
+        if self.path.startswith("/api/items/detail"):
+            self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers()
+            self.wfile.write(json.dumps(DETAIL_RESP).encode("utf-8")); return
+        html = DETAIL if self.path.startswith("/detail") else (GOOD if self.path.startswith("/good") else BAD)
         self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8"); self.end_headers()
         self.wfile.write(html.encode("utf-8"))
     def do_POST(self):
@@ -68,6 +80,15 @@ def _spec(cid, path, base):
                                     "columns": {"name": "td.name", "status": "td.status"}},
                         "dom_to_api": {"name": "name", "status": "status"},
                         "api_rows_path": "data.records"})
+
+
+def _spec_fields(cid, path, base):
+    return ExecSpec(case_id=cid, title=cid, kind="query", mode="ui", verify_status="human_verified",
+                    base_url=base, session="",
+                    ui={"page_url": base + path, "url_pattern": "/api/items/detail", "wait_ms": 1800,
+                        "extract": {"fields": {"label": ".lab", "value": ".val"}},
+                        "dom_to_api": {"名称": "itemName", "状态": "itemStatus"},
+                        "api_rows_path": "data"})
 
 
 def main():
@@ -91,6 +112,18 @@ def main():
             assert any("页面=" in x and "接口=" in x for x in r2.details), r2.details
             print("    ✓ 坏页: 渲染错值 → 抓出显示差异 → FAIL")
             print("      样例:", next(x for x in r2.details if "页面=" in x))
+
+            # 3) 详情 fields 模式:标签→值 zip 配对,页面显示 == 接口
+            r3 = run_ui_spec(_spec_fields("UI03", "/detail", base), db=None)
+            assert r3.verdict is Verdict.PASS, (r3.verdict, r3.details)
+            print("    ✓ 详情(fields 模式): 标签→值 == 接口 → PASS")
+
+            # 4) 空值防护:页面空、接口非空 必须判不一致(防假性通过回归)
+            from core.ui_verifier import verify_display
+            rg = verify_display([{"名称": ""}], {"data": {"itemName": "甲物"}},
+                                {"dom_to_api": {"名称": "itemName"}, "api_rows_path": "data"})
+            assert not rg.consistent, "页面空值不该判一致(假性通过)"
+            print("    ✓ 空值防护: 页面空 vs 接口非空 → 判不一致")
         finally:
             server.shutdown()
     print("\n全部通过 ✅  —— 库↔接口↔页面 的『页面↔接口』渲染校验层就位")

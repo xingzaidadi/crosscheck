@@ -142,25 +142,39 @@ class Prober:
                 page.wait_for_timeout(wait_ms)
                 shot("after_search")
 
-            # UI 渲染校验:按声明式规则读 DOM 里"实际显示"的行(field→单元格文本)
+            # UI 渲染校验:读 DOM 里"实际显示"的值。两种模式:
+            #   rows   —— 表格:rows_selector + columns{field:cell选择器} → 每行一条
+            #   fields —— 详情:fields{container,label,value} → 标签→值 一条(label-value 页)
             if extract:
                 try:
-                    self.rendered_rows = page.evaluate(
-                        """(spec) => {
-                          const rows = Array.from(document.querySelectorAll(spec.rows_selector));
-                          return rows.map(r => {
-                            const o = {};
-                            for (const k in spec.columns) {
-                              const sel = spec.columns[k];
-                              const el = sel ? r.querySelector(sel) : r;
-                              o[k] = el ? (el.innerText || '').trim() : null;
-                            }
-                            return o;
-                          });
-                        }""", extract)
+                    if "fields" in extract:
+                        # 标签-值 页(descriptions/表单):全页标签序列与值序列按文档顺序 zip 配对,
+                        # 不要求两者同父节点(HiUI 表格式 descriptions 标签值分处不同行)
+                        self.rendered_rows = page.evaluate(
+                            """(spec) => {
+                              const labs=[...document.querySelectorAll(spec.label)].map(e=>(e.innerText||'').trim());
+                              const vals=[...document.querySelectorAll(spec.value)].map(e=>(e.innerText||'').trim());
+                              const out={}; const n=Math.min(labs.length, vals.length);
+                              for(let i=0;i<n;i++){ if(labs[i] && !(labs[i] in out)) out[labs[i]]=vals[i]; }
+                              return [out];
+                            }""", extract["fields"])
+                    else:
+                        self.rendered_rows = page.evaluate(
+                            """(spec) => {
+                              const rows = Array.from(document.querySelectorAll(spec.rows_selector));
+                              return rows.map(r => {
+                                const o = {};
+                                for (const k in spec.columns) {
+                                  const sel = spec.columns[k];
+                                  const el = sel ? r.querySelector(sel) : r;
+                                  o[k] = el ? (el.innerText || '').trim() : null;
+                                }
+                                return o;
+                              });
+                            }""", extract)
                     shot("rendered")
                 except Exception as e:  # noqa: BLE001
-                    print(f"  DOM 抽取失败(检查 rows_selector/columns): {e}")
+                    print(f"  DOM 抽取失败(检查 extract 规则): {e}")
 
             # 保存/更新 Session 供回放复用(只在自己拥有的 context 上存;existing 模式是用户的真浏览器,不碰)
             if self.session_file and owns_context:

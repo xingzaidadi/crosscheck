@@ -52,6 +52,8 @@ def verify_display(rendered_rows: list[dict], api_response: dict, ui_cfg: dict) 
     """rendered_rows: DOM 抽取的行;api_response: 接口返回;ui_cfg: spec.ui。"""
     dom_to_api = ui_cfg.get("dom_to_api") or {}
     api_rows = _dig(api_response, ui_cfg.get("api_rows_path", "data.records")) or []
+    if isinstance(api_rows, dict):     # 详情类:接口 data 是单对象 → 当作一行
+        api_rows = [api_rows]
     res = UiResult(consistent=True)
 
     # 分页一致性:页面显示行数应等于接口这一页返回的行数
@@ -71,7 +73,8 @@ def verify_display(rendered_rows: list[dict], api_response: dict, ui_cfg: dict) 
                 continue
             if av == "" and dv.lower() in _PLACEHOLDERS:
                 continue   # 接口空值 + 页面占位符,视为一致
-            if av and (av in dv or dv in av):
+            # 注意:dv/av 任一为空都不能算匹配(空串是任何串的子串,会误判)
+            if av and dv and (av in dv or dv in av):
                 continue
             res.consistent = False
             res.diffs.append(f"第{i + 1}行 {dom_field}: 页面='{dv}' vs 接口='{av}'")
