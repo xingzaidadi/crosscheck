@@ -29,8 +29,9 @@ def run_ui_spec(spec, db: DbClient | None = None) -> CaseResult:
         page_url = spec.base_url.rstrip("/") + "/" + page_url.lstrip("/")
 
     rundir = artifacts_dir() / f"ui_{spec.case_id}_{int(time.time())}"
+    headed = bool(ui.get("headed"))          # 有头=弹可见窗口(给人看);默认无头
     prober = Prober(url_pattern=ui.get("url_pattern", ""), session_file=spec.session,
-                    headless=True, launch_mode="isolated", artifacts_dir=str(rundir))
+                    headless=not headed, launch_mode="isolated", artifacts_dir=str(rundir))
     details: list[str] = []
     verdict = Verdict.PASS
     try:
