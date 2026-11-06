@@ -166,7 +166,8 @@ table.dt th{{background:#f0f3f6}}
         "total": n, "pass": npass, "fail": nfail, "skip": nskip,
         "env_error": sum(1 for r in results if r.verdict is Verdict.ENV_ERROR),
         "cases": [{"case_id": r.case_id, "title": r.title, "verdict": r.verdict.value,
-                   "kind": r.kind, "mode": r.mode, "duration_s": r.duration_s} for r in results],
+                   "kind": r.kind, "mode": r.mode, "duration_s": r.duration_s,
+                   "note": (r.details[0] if r.details else "")} for r in results],
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     return out
 
