@@ -45,7 +45,7 @@ def main():
     assert aligned[0]["order_code"] == "A1", aligned
     print("    ✓ align_api_rows 把接口 key 名对齐到库侧名")
 
-    print("\n全部通过 ✅  —— 派生视图列表用跨源不变式验证(不做行数对账),受理台类用例就位")
+    print("\n全部通过 ✅  —— 派生视图列表用跨源不变式验证(不做行数对账)就位")
 
 
 if __name__ == "__main__":
