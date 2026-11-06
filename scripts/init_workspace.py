@@ -28,13 +28,17 @@ TEMPLATES = REPO_ROOT / "templates"
 SUBDIRS = [
     "config",
     "profiles",
-    "knowledge_base/query_mapping",
+    "knowledge_base/query_mapping",   # 查询类映射(probe 产草稿 → 人审)
     "knowledge_base/data_mapping",
-    "knowledge_base/page_model",
+    "knowledge_base/page_model",       # UI 录制蒸馏出的语义步骤
+    "knowledge_base/field_intel",      # 自进化字段知识(越跑越熟)
+    "specs_auto",                      # --auto-model 落盘的规格(待人审)
+    "specs_write",                     # 手工/固化的写入规格
     "actions",
-    "cases",
-    "captures",
+    "cases",                           # 用例 Excel
+    "captures",                        # 抓包样本 / 提交体模板
     "artifacts",
+    "runs",                            # 一次运行一个文件夹(report.html + 证据)
     ".auth",
 ]
 
@@ -42,6 +46,7 @@ SUBDIRS = [
 TEMPLATE_COPIES = [
     ("db.example.yaml", "config/db.example.yaml"),
     ("credentials.example.yaml", "config/credentials.example.yaml"),
+    ("case_routes.example.yaml", "config/case_routes.example.yaml"),
     ("profile.example.yaml", "profiles/_example.yaml"),
 ]
 
@@ -63,10 +68,11 @@ def main() -> None:
     target = Path(sys.argv[1]).resolve()
     init_workspace(target)
     print(f"✓ workspace 骨架已建好: {target}")
-    print("  下一步:")
-    print(f"    1) cp {target / 'config' / 'db.example.yaml'} {target / 'config' / 'db.yaml'}  并填真实连接")
-    print(f"    2) 按 {target / 'profiles' / '_example.yaml'} 写一个 profiles/<你的站点>.yaml")
-    print(f"    3) python run_record.py --profile <你的站点> --workspace {target}")
+    print("  接入新业务(零改框架码,详见 docs/ONBOARDING.md):")
+    print(f"    1) config/db.yaml      ← 填库连接(cp db.example.yaml)")
+    print(f"    2) profiles/<站点>.yaml ← 站点与登录(cp _example.yaml);run_verify login 建登录态")
+    print(f"    3) config/case_routes.yaml ← 路由(cp case_routes.example.yaml);查询类先 run_verify probe 产映射并人审")
+    print(f"    4) cases/ 放用例 Excel → python run_batch.py --excel <xlsx> --auto-model --workspace {target}")
 
 
 if __name__ == "__main__":
