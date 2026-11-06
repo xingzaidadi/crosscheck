@@ -1,6 +1,6 @@
 """
-跨源不变式对账(通用):用于『服务派生视图』类列表——列表由后端服务按派生状态
-(如受理台的 acceptStatus)过滤,无单一 DB 列可做行数对账。这类列表的正确测法不是
+跨源不变式对账(通用):用于『服务派生视图』类列表——列表由后端服务按某个派生状态
+过滤,无单一 DB 列可做行数对账。这类列表的正确测法不是
 "接口 total == SELECT COUNT",而是两条跨源不变式:
 
   1) 完整性(membership):接口返回的每一行,其主键都能在『记录系统表』中查到——
@@ -17,7 +17,7 @@ def reconcile_membership(api_rows: list[dict], db_rows: list[dict], *,
                          key: str, consistency: dict | None = None) -> dict:
     """
     api_rows: 接口返回行;db_rows: 按同一批 key 从记录系统查出的行。
-    key: 两边主键字段名(如 'demand_request_code' / 接口侧用 api_key_of 预先对齐)。
+    key: 两边主键字段名(如 'order_code';接口侧先用 align_api_rows 对齐到库侧名)。
     consistency: {api_field: db_field} 需逐行比对一致的字段对(可空,只查完整性)。
     返回 {verdict, total, present, missing, mismatch, detail}。
     """
@@ -47,7 +47,7 @@ def reconcile_membership(api_rows: list[dict], db_rows: list[dict], *,
 
 
 def align_api_rows(api_rows: list[dict], api_key: str, out_key: str) -> list[dict]:
-    """把接口行的 key 字段名对齐到库侧名(如 demandRequestCode → demand_request_code)。"""
+    """把接口行的 key 字段名对齐到库侧名(如 orderCode → order_code)。"""
     out = []
     for r in api_rows:
         d = dict(r)

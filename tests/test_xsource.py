@@ -41,8 +41,8 @@ def main():
     print(f"    ✓ A1 接口 TO_ACCEPT 库里 CLOSED → FAIL(一致性,mismatch={r3['mismatch']})")
 
     # key 对齐:接口驼峰 → 库下划线
-    aligned = align_api_rows([{"demandRequestCode": "A1"}], "demandRequestCode", "demand_request_code")
-    assert aligned[0]["demand_request_code"] == "A1", aligned
+    aligned = align_api_rows([{"orderCode": "A1"}], "orderCode", "order_code")
+    assert aligned[0]["order_code"] == "A1", aligned
     print("    ✓ align_api_rows 把接口 key 名对齐到库侧名")
 
     print("\n全部通过 ✅  —— 派生视图列表用跨源不变式验证(不做行数对账),受理台类用例就位")
