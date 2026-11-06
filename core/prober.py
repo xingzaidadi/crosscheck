@@ -339,3 +339,41 @@ class Prober:
         # 而非页面加载时的空筛选请求。
         scored.sort(key=lambda x: (x[0], x[1].ts), reverse=True)
         return scored[0][1]
+
+    def pick_write_call(self) -> Capture | None:
+        """从捕获里挑最像'写'的那次:POST/PUT/PATCH + 带 JSON 请求体 + url 含写动作词 + 响应示成功。
+        写入类自动建模用:probe 录一次写操作即得 endpoint + 提交体模板,免人工指定接口。"""
+        WRITE_HINTS = ("save", "submit", "create", "draft", "add", "update", "edit",
+                       "insert", "new", "confirm", "apply")
+
+        def score(c: Capture) -> int:
+            if c.method not in ("POST", "PUT", "PATCH"):
+                return 0
+            s = 3
+            if isinstance(c.request_body, dict) and c.request_body:
+                s += 3
+            if any(h in c.url.lower() for h in WRITE_HINTS):
+                s += 3
+            rj = c.response_json or {}
+            if isinstance(rj, dict) and (rj.get("success") is True or rj.get("code") in (0, 200)):
+                s += 2
+            # 排除明显的检索(响应是列表/分页),避免把"查"当成"写"
+            data = rj.get("data") if isinstance(rj, dict) else None
+            if isinstance(data, dict) and any(k in data for k in ("list", "rows", "records")):
+                s -= 4
+            return s
+
+        scored = [(score(c), c) for c in self.captures if score(c) > 0]
+        if not scored:
+            return None
+        scored.sort(key=lambda x: (x[0], x[1].ts), reverse=True)
+        return scored[0][1]
+
+
+def write_stub_from_capture(capture: Capture) -> dict:
+    """把一次写调用的抓包转成写路由桩:endpoint(method+path) + template_body(提交体模板)。
+    probe 产出这个桩后,route 的 endpoint/template 就不用人手写了(skill 存模板文件再引用即可)。"""
+    from urllib.parse import urlparse
+    path = urlparse(capture.url).path or capture.url
+    return {"endpoint": {"method": capture.method, "url": path},
+            "template_body": capture.request_body}

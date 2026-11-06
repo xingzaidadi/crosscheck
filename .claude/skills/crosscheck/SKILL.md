@@ -26,6 +26,7 @@ description: 把散文测试用例自动建模成可执行规格并跑出"页面
   - PRD/技术方案:`core.discovery.docs.DocIndex([...]).search([...])`
   - 已学知识:`core.discovery.knowledge.FieldIntel(feature)`(秒填 + 进化)
 - 名称/标题类一律用唯一标记 `{{marker}}`(可识别、可清理)。
+- **写接口 + 提交体模板不要手写**:对写页面 `run_verify probe --record` 录一次写操作,`prober.pick_write_call()` 自动挑出写调用,`write_stub_from_capture()` 产出 `endpoint`(method+path)+ 提交体模板;清理子表和标记字段由框架按库 schema/模板自动推导(route 只需给表名 + 预期状态)。
 
 ### 3. 草拟 ExecSpec(YAML,字段见 `core/spec.py`)
 按用例类型拼:
