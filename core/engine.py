@@ -51,6 +51,7 @@ def spec_to_testcase(spec) -> TestCase:
         "approve": spec.approve,
         "data_prep": spec.data_prep,
         "verify_poll": spec.verify_poll,
+        "event_asserts": spec.assertions.get("events") or [],
     }
     return TestCase(case_id=spec.case_id, feature=spec.feature or spec.case_id,
                     account_ref="", data_prep=None, steps=[], expected=expected, raw=raw)
@@ -123,7 +124,7 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
 
         guard.snapshot_before(case.expected)
         action = adapter.perform(case, marker, vars)
-        did.append(f"提交需求 {req.get('method')} {req.get('url')}(唯一标记 {marker})")
+        did.append(f"执行写动作 {req.get('method')} {req.get('url')}(唯一标记 {marker})")
         code = _dig(action.api_body, "code")
         doc_no = _dig(action.api_body, "data.demandRequestCode")
         layers.append({
@@ -172,6 +173,18 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
 
         verdict, vdetails = verifier.verify(case, marker, action, vars)
         details += vdetails
+
+        # 异步/事件校验:等事件表/外部通知在时限内按标记落地(事件消费/异步导出/飞书/MQ)
+        ev_asserts = case.raw.get("event_asserts") or []
+        if ev_asserts:
+            from core.events import check_events
+            eok, edetails, elayers = check_events(
+                ev_asserts, marker=marker, vars=vars, db=db,
+                base_url=adapter.base_url, session_file=spec.session)
+            details += edetails
+            layers += elayers
+            if not eok and verdict is Verdict.PASS:
+                verdict = Verdict.FAIL
 
         dverdict, ddetails = guard.snapshot_after(case.expected, marker)
         if dverdict is not Verdict.PASS:
