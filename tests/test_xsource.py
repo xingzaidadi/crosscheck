@@ -21,24 +21,24 @@ def main():
     print("跨源不变式对账 验证:\n")
 
     # 接口三行,库里都在,状态都一致 → PASS
-    api = [{"code": "A1", "st": "TO_ACCEPT"}, {"code": "A2", "st": "ACCEPTING"}, {"code": "A3", "st": "TO_ACCEPT"}]
-    db = [{"code": "A1", "st": "TO_ACCEPT"}, {"code": "A2", "st": "ACCEPTING"}, {"code": "A3", "st": "TO_ACCEPT"}, {"code": "Z9", "st": "DRAFT"}]
+    api = [{"code": "A1", "st": "OPEN"}, {"code": "A2", "st": "ACTIVE"}, {"code": "A3", "st": "OPEN"}]
+    db = [{"code": "A1", "st": "OPEN"}, {"code": "A2", "st": "ACTIVE"}, {"code": "A3", "st": "OPEN"}, {"code": "Z9", "st": "DRAFT"}]
     r = reconcile_membership(api, db, key="code", consistency={"st": "st"})
     assert r["verdict"] == "PASS", r
     assert r["present"] == 3 and not r["missing"] and not r["mismatch"], r
     print(f"    ✓ 全在库+状态一致 → PASS({r['detail']});库里多出的 Z9 不影响(视图是子集)")
 
     # 接口冒出一行库里没有 → 完整性失败(派生视图捏造了不存在的单据)
-    api2 = api + [{"code": "GHOST", "st": "TO_ACCEPT"}]
+    api2 = api + [{"code": "GHOST", "st": "OPEN"}]
     r2 = reconcile_membership(api2, db, key="code", consistency={"st": "st"})
     assert r2["verdict"] == "FAIL" and r2["missing"] == ["GHOST"], r2
     print(f"    ✓ 接口多出库里没有的 GHOST → FAIL(完整性,missing={r2['missing']})")
 
     # 状态两边矛盾 → 一致性失败
-    db3 = [{"code": "A1", "st": "CLOSED"}, {"code": "A2", "st": "ACCEPTING"}, {"code": "A3", "st": "TO_ACCEPT"}]
+    db3 = [{"code": "A1", "st": "DONE"}, {"code": "A2", "st": "ACTIVE"}, {"code": "A3", "st": "OPEN"}]
     r3 = reconcile_membership(api, db3, key="code", consistency={"st": "st"})
     assert r3["verdict"] == "FAIL" and r3["mismatch"] and r3["mismatch"][0]["key"] == "A1", r3
-    print(f"    ✓ A1 接口 TO_ACCEPT 库里 CLOSED → FAIL(一致性,mismatch={r3['mismatch']})")
+    print(f"    ✓ A1 接口 OPEN 库里 DONE → FAIL(一致性,mismatch={r3['mismatch']})")
 
     # key 对齐:接口驼峰 → 库下划线
     aligned = align_api_rows([{"orderCode": "A1"}], "orderCode", "order_code")
