@@ -59,6 +59,7 @@ class ExecSpec:
     approve: dict[str, Any] = field(default_factory=dict)     # 一键审批请求(可选,同 request 结构)
     verify_poll: dict[str, Any] = field(default_factory=dict)  # 异步验库等待 {timeout_s, interval_s};空=只查一次
     prepare_state: str = ""                                    # 声明前置状态(查 state_recipes/<feature>.json 配方造单);空=不造
+    blocked: str = ""                                          # 口径待确认→阻塞:执行时绝不判 PASS(保留设计、阻塞验收)
 
     # UI 渲染校验(mode=ui / reconcile 附加):证明"页面显示"== 接口(再接库对账 = 三层对齐)
     #   {page_url, url_pattern, actions[], extract:{rows_selector, columns:{domField:cellSelector}},
@@ -92,11 +93,17 @@ def from_raw(raw) -> ExecSpec:
     if "待确认" in (raw.notes or ""):
         notes.append(f"口径待确认(备注):{raw.notes[:60]}")
 
+    # 口径待确认门禁:步骤/预期/备注含"待确认"的用例标阻塞,执行时绝不判 PASS(保留设计、阻塞验收)
+    scan = f"{raw.preconditions}\n{raw.steps_text}\n{raw.expected_text}\n{raw.notes}"
+    blocked = ""
+    if "待确认" in scan or "待定" in scan:
+        blocked = "口径待确认(步骤/预期/备注含'待确认'),阻塞验收直到规则敲定"
+
     return ExecSpec(
         case_id=raw.case_id, title=raw.name, level=raw.level, category=raw.category,
         kind=kind, mode=mode, verify_status="draft",
         feature="", endpoints=_extract_endpoints(blob),
-        source_row=raw.row, needs_review=notes,
+        source_row=raw.row, needs_review=notes, blocked=blocked,
         raw={"preconditions": raw.preconditions, "steps": raw.steps_text,
              "expected": raw.expected_text, "notes": raw.notes, "module": raw.module},
     )

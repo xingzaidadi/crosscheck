@@ -158,6 +158,8 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path) -> CaseResult:
 
     if dry_run:
         return _skip(spec, t0, f"dry-run:仅草拟(kind={spec.kind}, mode={spec.mode}, 接口={spec.endpoints or '—'})", layer="dry-run")
+    if getattr(spec, "blocked", ""):
+        return _skip(spec, t0, f"待确认-阻塞:{spec.blocked}(保留设计,不计通过)", layer="待确认门禁")
     if spec.verify_status != "human_verified":
         return _skip(spec, t0, "未人审(draft):补全 assertions / request 并转 human_verified 后再执行", layer="人审")
 
