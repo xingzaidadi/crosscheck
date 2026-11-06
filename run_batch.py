@@ -242,6 +242,8 @@ def main():
     ap.add_argument("--run-id", dest="run_id", default=None, help="运行标识(默认 run_时间戳)")
     ap.add_argument("--run-dir", dest="run_dir", default=None, help="运行目录(默认 <workspace>/runs/<run-id>)")
     ap.add_argument("--workers", type=int, default=1, help="只读(对账)类并发数;写入/UI 仍串行。默认 1=全串行")
+    ap.add_argument("--ensure-login", dest="ensure_login", action="store_true",
+                    help="跑批前自动续期:对本批用到的 B 模式站点检活,失效则自动重登(A 模式失效仅告警)")
     ap.add_argument("--out", default=None, help="(已弃用)报告现固定输出到运行目录 report.html")
     args = ap.parse_args()
 
@@ -277,6 +279,12 @@ def main():
     run_dir = Path(args.run_dir) if args.run_dir else (workspace_root() / "runs" / run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
     print(f"[batch] 运行目录: {run_dir}")
+
+    if args.ensure_login and not args.dry_run:
+        from core.session_ensure import ensure_batch_sessions
+        for a in ensure_batch_sessions(specs):
+            tag = {"ensured": "✓ 续期/检活", "skip-manual": "⚠ A模式需人工", "error": "✗ 续期失败"}.get(a["action"], a["action"])
+            print(f"  [登录] {a['site']}: {tag}" + (f" {a.get('error','')}" if a["action"] == "error" else ""))
 
     results = run_specs(specs, args.dry_run, run_dir, args.workers)
 
