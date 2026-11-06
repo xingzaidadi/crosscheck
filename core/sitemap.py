@@ -19,12 +19,25 @@ _COLLECT_JS = r"""
   const out = [];
   const push = (text, href) => out.push({text: (text||'').trim().slice(0,40), href: href||''});
   document.querySelectorAll('a[href]').forEach(a => push(a.innerText, a.getAttribute('href')));
-  // 菜单/页签/SPA 路由项:常见是带 role 或 menu/tab 类、或 data-* 路由
   document.querySelectorAll('[role=menuitem],[role=tab],[class*=menu-item],[class*=menu__item],[class*=tab]').forEach(e => {
     const h = e.getAttribute('href') || e.getAttribute('data-href') || e.getAttribute('data-route') || '';
     push(e.innerText, h);
   });
   return out;
+}
+"""
+
+# SPA 导航多为无 href 的 div/按钮:收"可点的导航项文本"(菜单/侧边/页签),用于交互式发现
+_NAV_TEXT_JS = r"""
+() => {
+  const sel = '[role=menuitem],[role=tab],[class*=menu] li,[class*=menu] a,[class*=menu] span,'
+            + '[class*=sider] li,[class*=nav] li,[class*=tab]';
+  const seen = new Set(); const out = [];
+  document.querySelectorAll(sel).forEach(e => {
+    const t = (e.innerText||'').trim();
+    if (t && t.length <= 16 && !seen.has(t) && e.offsetParent !== null) { seen.add(t); out.push(t); }
+  });
+  return out.slice(0, 40);
 }
 """
 
@@ -103,6 +116,27 @@ def discover(root_url: str, session_file: str | None = None, *, max_pages: int =
             except Exception:  # noqa: BLE001
                 title = ""
             pages_out.append({"title": title, "url": u, "apis": apis_by_url.get(u, [])})
+
+        # 交互式发现(SPA 菜单无 href):点每个导航项,记点击后的真实 URL + 触发的接口
+        seen = {p["url"] for p in pages_out}
+        try:
+            navs = page.evaluate(_NAV_TEXT_JS)
+        except Exception:  # noqa: BLE001
+            navs = []
+        for t in navs[:max_pages]:
+            try:
+                page.goto(root_url, wait_until="domcontentloaded")
+                page.wait_for_timeout(1200)
+                cur["url"] = f"nav:{t}"
+                page.get_by_text(t, exact=True).first.click(timeout=4000)
+                page.wait_for_timeout(wait_ms)
+                real = page.url
+                apis = apis_by_url.pop(f"nav:{t}", [])
+                if real and real not in seen:
+                    seen.add(real)
+                    pages_out.append({"title": page.title(), "url": real, "nav": t, "apis": apis})
+            except Exception:  # noqa: BLE001
+                pass
 
         ctx.close(); browser.close()
     return {"root": root_url, "discovered_at": time.strftime("%Y-%m-%d %H:%M:%S"), "pages": pages_out}
