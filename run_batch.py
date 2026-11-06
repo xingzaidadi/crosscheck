@@ -310,6 +310,14 @@ def main():
     if index_path:
         print(f"  ✓ 运行总览: {index_path}")
 
+    from core.triage import summarize   # 失败自动归因:环境/建模错/真bug候选
+    tr = summarize(results)
+    nonpass = {k: v for k, v in tr["buckets"].items() if k not in ("pass", "skipped")}
+    if nonpass:
+        print(f"  ✓ 失败归因: {nonpass}")
+        if tr["bug_candidates"]:
+            print(f"  ⚠ 疑似缺陷(建议开发确认): {tr['bug_candidates']}")
+
 
 if __name__ == "__main__":
     main()
