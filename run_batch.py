@@ -187,7 +187,15 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path) -> CaseResult:
         return cr
 
     if spec.mode == "ui":
-        db = _open_db(spec.db)
+        if (spec.ui or {}).get("page_model"):   # UI 写入:回放 page_model → 提交 → 验库 → 清理
+            db, has_write = _open_rw(spec)
+            if db is None:
+                return _skip(spec, t0, "未配可用库(workspace/config/db.yaml)", verdict=Verdict.ENV_ERROR)
+            try:
+                return ui_check.run_ui_write_spec(spec, db, run_dir)
+            finally:
+                db.close()
+        db = _open_db(spec.db)                   # UI 读:库↔接口↔页面 三层校验
         try:
             return ui_check.run_ui_spec(spec, db, run_dir)
         finally:

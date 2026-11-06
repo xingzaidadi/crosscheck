@@ -59,6 +59,7 @@ class Prober:
         self.video_path: str | None = None
         self.screenshots: list[dict] = []   # [{name, path}]
         self.rendered_rows: list[dict] = []  # DOM 实际显示的行(UI 渲染校验用)
+        self.replay_results: list[dict] = []  # 语义动作回放每步结果(UI 写入用)
 
     # ───────────────────────── 抓取 ─────────────────────────
 
@@ -70,6 +71,7 @@ class Prober:
         record: bool = False,
         actions: list[dict] | None = None,
         extract: dict | None = None,
+        replay_actions: list[dict] | None = None,
     ) -> list[Capture]:
         """
         打开 page_url,拦截流量,可选录视频/截图/跑声明式检索动作。
@@ -113,7 +115,16 @@ class Prober:
             page.wait_for_timeout(1500)
             shot("loaded")
 
-            if actions:
+            if replay_actions:
+                # UI 写入:语义动作回放(含复杂控件 + 选择器自愈),抓包/录像照常
+                from core.ui_actions import replay as _replay
+                try:
+                    self.replay_results = _replay(page, replay_actions)
+                except Exception as e:  # noqa: BLE001
+                    print(f"  语义回放中断: {e}")
+                page.wait_for_timeout(wait_ms)
+                shot("after_replay")
+            elif actions:
                 from core.login import _run_steps
                 try:
                     _run_steps(page, actions, None, shot=shot)
