@@ -39,6 +39,12 @@ def evaluate(expr: str, vals: dict) -> float:
     return _ev(ast.parse(expr, mode="eval"), vals)
 
 
+def idempotent_ok(id1, id2) -> bool:
+    """幂等判据:同参两次写,返回的单据标识必须相同且非空(不同=没幂等,重复建单)。"""
+    s1, s2 = str(id1), str(id2)
+    return s1 == s2 and s1 not in ("", "None", "∅") and id1 is not None
+
+
 def check_compute(submitted: dict, persisted: dict, rules: list, item_key: str = "") -> tuple[bool, dict]:
     """逐条算"公式(用提交值)== 落库值"。返回 (ok, 报告层)。"""
     cols, rows, ok_all = ["字段", "公式", "算得", "落库值", "一致"], [], True

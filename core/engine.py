@@ -54,6 +54,7 @@ def spec_to_testcase(spec) -> TestCase:
         "event_asserts": spec.assertions.get("events") or [],
         "roundtrip": spec.assertions.get("roundtrip") or {},
         "unchanged": spec.assertions.get("unchanged") or {},
+        "idempotent": spec.assertions.get("idempotent") or {},
     }
     return TestCase(case_id=spec.case_id, feature=spec.feature or spec.case_id,
                     account_ref="", data_prep=None, steps=[], expected=expected, raw=raw)
@@ -183,6 +184,22 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
 
         verdict, vdetails = verifier.verify(case, marker, action, vars)
         details += vdetails
+
+        # 幂等不变量:同参再发一次,两次应返回同一单据(不同=没幂等,重复建单)。放在 verify 后,避免被覆盖
+        idem = case.raw.get("idempotent") or {}
+        if idem:
+            from core import invariants as _inv
+            r2 = adapter.call(req, vars)
+            path = idem.get("code_from", "data.demandRequestCode")
+            id1, id2 = _dig(action.api_body, path), _dig(r2.api_body, path)
+            iok = _inv.idempotent_ok(id1, id2)
+            layers.append({"name": "幂等不变量", "ok": iok,
+                           "expected": "同参重复请求返回同一单据,不重复生成",
+                           "actual": f"第1次 {id1} · 第2次 {id2}"})
+            if not iok:
+                details.append(f"幂等失效:两次返回不同单据 {id1!r} vs {id2!r}")
+                if verdict is Verdict.PASS:
+                    verdict = Verdict.FAIL
 
         # 异步/事件校验:等事件表/外部通知在时限内按标记落地(事件消费/异步导出/飞书/MQ)
         ev_asserts = case.raw.get("event_asserts") or []
