@@ -28,9 +28,10 @@ except Exception:
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from core.workspace import set_workspace, workspace_root, kb_dir, captures_dir  # noqa: E402
+from core.workspace import set_workspace, workspace_root, kb_dir, captures_dir, config_dir  # noqa: E402
 from core.case_source import read_cases  # noqa: E402
 from core.spec import ExecSpec, from_raw, load_specs  # noqa: E402
+from core.modeler import model_cases, load_routes  # noqa: E402
 from core.reporter import Reporter  # noqa: E402
 from core.interfaces import CaseResult, Verdict  # noqa: E402
 from core.reconciler import Reconciler  # noqa: E402
@@ -100,6 +101,10 @@ def _run_reconcile(spec: ExecSpec, case_dir: Path | None = None) -> tuple[Verdic
             **rep, "layers": [{"name": "连库", "ok": False, "note": "workspace/config/db.yaml 未配可用只读库"}]}
     try:
         res = Reconciler(db, mapping).reconcile(api_params, api_resp)
+    except Exception as e:  # noqa: BLE001  单条对账出错不拖垮整批
+        return Verdict.ENV_ERROR, [f"对账执行异常: {e}"], {
+            **rep, "layers": [{"name": "接口 ↔ 库 对账", "ok": False,
+                               "note": f"异常(多为映射库/表不匹配):{str(e)[:200]}"}]}
     finally:
         db.close()
     rep["did"].append(f"连库 {spec.db or 'default'},按『{feature}』映射把接口参数翻成 SQL 对账")
@@ -198,6 +203,10 @@ def main():
     ap.add_argument("--excel", default=None, help="固定格式 Excel 用例(自动草拟规格)")
     ap.add_argument("--sheet", default=None, help="Excel sheet 名(默认第一个)")
     ap.add_argument("--specs", default=None, help="已建模规格目录(*.yaml)")
+    ap.add_argument("--auto-model", dest="auto_model", action="store_true",
+                    help="(配 --excel)自动建模:复用自发现产物(路由+映射+抓包)拼出可跑规格再执行")
+    ap.add_argument("--save-specs", dest="save_specs", default=None,
+                    help="(配 --auto-model)把自动建模出的规格落盘到该目录,便于人审")
     ap.add_argument("--limit", type=int, default=0, help="只跑前 N 条(0=全部)")
     ap.add_argument("--dry-run", action="store_true", help="只草拟/校验,不连库执行")
     ap.add_argument("--run-id", dest="run_id", default=None, help="运行标识(默认 run_时间戳)")
@@ -209,8 +218,20 @@ def main():
         set_workspace(args.workspace)
 
     if args.excel:
-        specs = [from_raw(c) for c in read_cases(args.excel, args.sheet)]
-        print(f"[batch] 从 Excel 读入并草拟 {len(specs)} 条规格:{args.excel}")
+        raws = read_cases(args.excel, args.sheet)
+        if args.auto_model:
+            routes = load_routes(config_dir() / "case_routes.yaml")
+            specs = model_cases(raws, routes=routes, kb_root=kb_dir(), caps_root=captures_dir())
+            ready = sum(1 for s in specs if s.verify_status == "human_verified")
+            print(f"[batch] 从 Excel 自动建模 {len(specs)} 条,其中 {ready} 条可直接执行:{args.excel}")
+            if args.save_specs:
+                from core.spec import dump_spec
+                for s in specs:
+                    dump_spec(s, Path(args.save_specs) / f"{s.case_id}.yaml")
+                print(f"[batch] 自动建模规格已落盘(待人审):{args.save_specs}")
+        else:
+            specs = [from_raw(c) for c in raws]
+            print(f"[batch] 从 Excel 读入并草拟 {len(specs)} 条规格:{args.excel}")
     elif args.specs:
         specs = load_specs(args.specs)
         print(f"[batch] 载入已建模规格 {len(specs)} 条:{args.specs}")
