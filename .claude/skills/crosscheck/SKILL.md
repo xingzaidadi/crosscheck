@@ -45,7 +45,9 @@ description: 把散文测试用例自动建模成可执行规格并跑出"页面
 ```bash
 python run_batch.py --specs workspace/specs_auto
 ```
-框架会:发请求/开页面 → 多方校验(接口↔库、页面↔接口)→ diff 安全网 → 按标记清理 → 出 `workspace/runs/<run>/report.html` 富报告(做了什么/预期/实际/查的库表/SQL/截图/录像)。
+框架会:发请求/开页面 → 多方校验(接口↔库、页面↔接口)→ diff 安全网 → 按标记清理 → 出 `workspace/runs/<run>/report.html` 富报告(做了什么/预期/实际/查的库表/SQL/截图/录像)。多次运行看 `workspace/runs/index.html` 总览(通过率趋势)。只读类可 `--workers N` 并发提速。
+
+UI 控件定位失效时,`ui_actions.replay`/`ui_heal.resolve_input` 支持传入 `llm_resolver(label, candidates)`:确定性策略(form-item/label/placeholder/aria)全失败时,由你(会话 LLM)读候选控件+附近文字选一个 CSS 选择器兜底,命中记 `heal=llm` 回写知识待审。
 
 ### 6. 回写知识(自进化)
 把本次确认好的字段/填法/枚举记进 `FieldIntel(feature)` 并 `save()`,下次同功能更快、更准。

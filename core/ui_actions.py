@@ -27,11 +27,11 @@ def _item(page, label: str, ui: dict):
     return page.locator(ui["form_item"]).filter(has_text=label).first
 
 
-def _text(page, label, value, ui) -> str:
+def _text(page, label, value, ui, llm_resolver=None) -> str:
     """多策略定位输入控件并填;返回命中的策略名(非 form-item = 发生自愈)。"""
-    loc, strat = resolve_input(page, label, ui)
+    loc, strat = resolve_input(page, label, ui, llm_resolver)
     if loc is None:
-        raise RuntimeError(f"找不到字段『{label}』的输入控件(主/备策略均失效)")
+        raise RuntimeError(f"找不到字段『{label}』的输入控件(主/备/LLM 策略均失效)")
     loc.fill(str(value), timeout=4000)
     return strat
 
@@ -56,9 +56,9 @@ def _cascader(page, label, path, ui) -> None:
         page.wait_for_timeout(150)
 
 
-def _date(page, label, value, ui) -> str:
+def _date(page, label, value, ui, llm_resolver=None) -> str:
     """日期:多策略定位 input,优先直接键入;失败则点开选面板里匹配格。返回命中的策略名。"""
-    inp, strat = resolve_input(page, label, ui)
+    inp, strat = resolve_input(page, label, ui, llm_resolver)
     if inp is None:
         raise RuntimeError(f"找不到日期字段『{label}』")
     try:
@@ -101,8 +101,9 @@ def _click(page, step, ui) -> None:
         page.get_by_text(str(step.get("text", "")), exact=True).first.click(timeout=3000)
 
 
-def replay(page, actions: list[dict], ui: dict | None = None) -> list[dict]:
-    """按 page_model 回放一串语义动作,返回每步 {action, target, ok, error}。失败不中断,留给自愈/记账。"""
+def replay(page, actions: list[dict], ui: dict | None = None, llm_resolver=None) -> list[dict]:
+    """按 page_model 回放一串语义动作,返回每步 {action, target, ok, error}。失败不中断,留给自愈/记账。
+    llm_resolver 可选:确定性定位失败时交 LLM 重解析(由 skill 的会话 LLM 注入),命中记 heal=llm。"""
     ui = ui or DEFAULT_UI
     results = []
     for a in actions:
@@ -111,13 +112,13 @@ def replay(page, actions: list[dict], ui: dict | None = None) -> list[dict]:
         try:
             strat = ""
             if act in ("text", "number", "textarea"):
-                strat = _text(page, a["label"], a.get("value", ""), ui)
+                strat = _text(page, a["label"], a.get("value", ""), ui, llm_resolver)
             elif act == "select":
                 _select(page, a["label"], a.get("value", ""), ui)
             elif act == "cascader":
                 _cascader(page, a["label"], a.get("path") or [], ui)
             elif act == "date":
-                strat = _date(page, a["label"], a.get("value", ""), ui)
+                strat = _date(page, a["label"], a.get("value", ""), ui, llm_resolver)
             elif act == "grid_cell":
                 _grid_cell(page, a["column"], a.get("value", ""), ui, int(a.get("row", 0)))
             elif act == "click":
