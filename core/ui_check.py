@@ -194,6 +194,14 @@ def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = N
         verdict = Verdict.FAIL
         details += [f"回放失败: {r['target']} {r.get('error','')}" for r in rr if not r["ok"]]
 
+    # 前端校验类:填非法值后页面应给出预期校验提示
+    if ui.get("expect_validation"):
+        from core.ui_validation import check_validation
+        vok, vlayer = check_validation(prober.validation_errors, ui["expect_validation"])
+        layers.append(vlayer)
+        if not vok and verdict is Verdict.PASS:
+            verdict = Verdict.FAIL
+
     # 字段联动/只读校验(前端行为,只能在页面上验)
     if prober.field_check:
         fok, flayer = prober.field_check

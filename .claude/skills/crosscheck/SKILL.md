@@ -35,7 +35,10 @@ description: 把散文测试用例自动建模成可执行规格并跑出"页面
   - `request`:`endpoint` + `body`(模板去服务端字段、`{{marker}}` 注标题/幂等键、按**本例预期**设具体入参值,如 `quantity/unitPrice`);
   - `assertions.db`:把**预期**翻成断言——`where`(按标记定位,子表用父单号子查询)、`row_count`、`fields`(落库某列=预期值,体现"服务端重算/状态流转"等);
   - `approve`:若用例要走审批,带上(businessKey 可从响应或库取);
-  - `cleanup` + `allowed_tables` + `verify_poll`(异步翻转等待)+ `diff_full_scan: false`(级联写入)。
+  - `cleanup` + `allowed_tables` + `verify_poll`(异步翻转等待)+ `diff_full_scan: false`(级联写入);
+  - 预期被拒的守卫/校验:`assertions.response.rejected: true`;前置状态单:`prepare_state: <状态名>`(配 `state_recipes/<feature>.json`);异步事件:`assertions.events`。
+- **UI 行为类**(字段联动/只读、页签计算、前端校验):`mode: ui` + `ui.page_model`(回放),断言用 `ui.field_asserts`(联动值/只读态)、`ui.value_asserts`(页签/按钮数↔库)、`ui.expect_validation`(前端校验报错)。
+> **校验/拦截类先判层**:后端校验(接口会拒)→ API 层 `rejected:true`;前端校验(控件禁选/红字,后端信任不复查)→ **走 UI** 填非法值读报错 `expect_validation`。判错层会误报(如"过去日期"若是前端校验,API 提交会成功——TC20 实测如此)。拿不准查 PRD/技术文档或探一次。
 把草拟结果写到 `workspace/specs_auto/<case_id>.yaml`,`verify_status: draft`。
 
 ### 4. 人审

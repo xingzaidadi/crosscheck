@@ -62,6 +62,7 @@ class Prober:
         self.replay_results: list[dict] = []  # 语义动作回放每步结果(UI 写入用)
         self.field_check: tuple | None = None  # (ok, 报告层):字段联动/只读校验结果
         self.value_reads: dict[str, str] = {}  # {选择器: 页面文本}:页签/按钮计算值校验用
+        self.validation_errors: list[str] = []  # 回放后页面的前端校验报错文本(前端校验类用例用)
 
     # ───────────────────────── 抓取 ─────────────────────────
 
@@ -135,6 +136,12 @@ class Prober:
                         self.field_check = check_fields(page, field_asserts)
                     except Exception as e:  # noqa: BLE001
                         self.field_check = (False, {"name": "UI 字段校验", "ok": False, "note": str(e)[:120]})
+                # 读前端校验报错(前端校验类用例:填非法值后页面报错)
+                try:
+                    from core.discovery.fields import read_validation_errors
+                    self.validation_errors = read_validation_errors(page)
+                except Exception:  # noqa: BLE001
+                    self.validation_errors = []
             elif actions:
                 from core.login import _run_steps
                 try:
