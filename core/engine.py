@@ -209,11 +209,24 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
                     submitted, persisted if persisted is not _MISSING else {},
                     ignore=rt.get("ignore") or [], item_key=rt.get("item_key", ""),
                     item_ignore=rt.get("item_ignore") or [])
-                layers.append(rlayer)
-                if not rok:
-                    details += [f"字段不一致: {m[0]} 提交{m[1]!r} vs 落库{m[2]!r}" for m in mism]
-                    if verdict is Verdict.PASS:
-                        verdict = Verdict.FAIL
+                pdata = persisted if persisted is not _MISSING else {}
+                if rt.get("fields", True):
+                    layers.append(rlayer)
+                    if not rok:
+                        details += [f"字段不一致: {m[0]} 提交{m[1]!r} vs 落库{m[2]!r}" for m in mism]
+                        if verdict is Verdict.PASS:
+                            verdict = Verdict.FAIL
+                # 计算不变量(金额重算等):复用同一次详情
+                if rt.get("compute"):
+                    from core import invariants as _inv
+                    cok, clayer = _inv.check_compute(submitted, pdata, rt["compute"],
+                                                     item_key=rt.get("item_key", ""))
+                    layers.append(clayer)
+                    if not cok:
+                        details += [f"计算不变量不符: {r[0]} {r[1]}={r[2]} vs 落库{r[3]}"
+                                    for r in clayer.get("rows", []) if r[-1] == "✗"]
+                        if verdict is Verdict.PASS:
+                            verdict = Verdict.FAIL
 
         dverdict, ddetails = guard.snapshot_after(case.expected, marker)
         if dverdict is not Verdict.PASS:
