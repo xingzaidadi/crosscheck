@@ -53,6 +53,7 @@ def spec_to_testcase(spec) -> TestCase:
         "verify_poll": spec.verify_poll,
         "event_asserts": spec.assertions.get("events") or [],
         "roundtrip": spec.assertions.get("roundtrip") or {},
+        "unchanged": spec.assertions.get("unchanged") or {},
     }
     return TestCase(case_id=spec.case_id, feature=spec.feature or spec.case_id,
                     account_ref="", data_prep=None, steps=[], expected=expected, raw=raw)
@@ -122,6 +123,14 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
                     details.append(f"data_prep 未抓到 {var}(路径 {path})")
                 else:
                     vars[var] = val
+
+        # 副作用防护:操作前给目标记录拍字段快照(守卫/负向用例用)
+        uc = case.raw.get("unchanged") or {}
+        uc_before = None
+        if uc.get("table"):
+            from core import unchanged as _uc
+            uc_before = _uc.read_fields(db, uc["table"],
+                                        _uc.render_where(uc["where"], marker, vars), uc.get("fields"))
 
         guard.snapshot_before(case.expected)
         action = adapter.perform(case, marker, vars)
@@ -227,6 +236,18 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
                                     for r in clayer.get("rows", []) if r[-1] == "✗"]
                         if verdict is Verdict.PASS:
                             verdict = Verdict.FAIL
+
+        # 副作用防护:操作后再拍,比前后快照——不该变却变了的字段现形
+        if uc.get("table"):
+            from core import unchanged as _uc
+            uc_after = _uc.read_fields(db, uc["table"],
+                                       _uc.render_where(uc["where"], marker, vars), uc.get("fields"))
+            uok, ulayer = _uc.diff(uc_before, uc_after, uc.get("fields"))
+            layers.append(ulayer)
+            if not uok:
+                details += [f"副作用:字段 {r[0]} 被改 {r[1]!r}→{r[2]!r}" for r in ulayer.get("rows", []) if r[-1] == "✗"]
+                if verdict is Verdict.PASS:
+                    verdict = Verdict.FAIL
 
         dverdict, ddetails = guard.snapshot_after(case.expected, marker)
         if dverdict is not Verdict.PASS:
