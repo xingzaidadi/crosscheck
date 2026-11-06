@@ -27,17 +27,23 @@ _COLLECT_JS = r"""
 }
 """
 
-# SPA 导航多为无 href 的 div/按钮:收"可点的导航项文本"(菜单/侧边/页签),用于交互式发现
+# SPA 导航多为无 href 的 div/按钮:收"可点的导航项文本"(菜单/侧边/页签,含折叠子菜单),交互式发现用。
+# 含当前隐藏的子菜单项(在 DOM 里),过滤"收起/展开"等噪音;点不到的点击时自然跳过。
+_NAV_NOISE = ("收起", "展开", "折叠", "全部", "更多", "collapse", "expand", "more")
 _NAV_TEXT_JS = r"""
-() => {
-  const sel = '[role=menuitem],[role=tab],[class*=menu] li,[class*=menu] a,[class*=menu] span,'
-            + '[class*=sider] li,[class*=nav] li,[class*=tab]';
+(noise) => {
+  const sel = '[role=menuitem],[role=tab],[class*=menu] li,[class*=menu] a,[class*=submenu] li,'
+            + '[class*=sider] li,[class*=nav] li,[class*=tab-pane],[class*=tab] [class*=title]';
   const seen = new Set(); const out = [];
   document.querySelectorAll(sel).forEach(e => {
+    // 取叶子项文本:优先无子 li 的节点,避免把整组菜单文本连在一起
+    if (e.querySelector('li,[class*=submenu]')) return;
     const t = (e.innerText||'').trim();
-    if (t && t.length <= 16 && !seen.has(t) && e.offsetParent !== null) { seen.add(t); out.push(t); }
+    if (!t || t.length > 16 || seen.has(t)) return;
+    if (noise.some(n => t.includes(n))) return;
+    seen.add(t); out.push(t);
   });
-  return out.slice(0, 40);
+  return out.slice(0, 60);
 }
 """
 
@@ -120,7 +126,7 @@ def discover(root_url: str, session_file: str | None = None, *, max_pages: int =
         # 交互式发现(SPA 菜单无 href):点每个导航项,记点击后的真实 URL + 触发的接口
         seen = {p["url"] for p in pages_out}
         try:
-            navs = page.evaluate(_NAV_TEXT_JS)
+            navs = page.evaluate(_NAV_TEXT_JS, list(_NAV_NOISE))
         except Exception:  # noqa: BLE001
             navs = []
         for t in navs[:max_pages]:
@@ -132,7 +138,8 @@ def discover(root_url: str, session_file: str | None = None, *, max_pages: int =
                 page.wait_for_timeout(wait_ms)
                 real = page.url
                 apis = apis_by_url.pop(f"nav:{t}", [])
-                if real and real not in seen:
+                # 只记"点击后 URL 真变了"的(排除 收起/切tab 这类不导航的噪音)
+                if real and real != root_url and real not in seen:
                     seen.add(real)
                     pages_out.append({"title": page.title(), "url": real, "nav": t, "apis": apis})
             except Exception:  # noqa: BLE001
