@@ -165,7 +165,8 @@ def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = N
     did = [f"打开页面 {page_url}", f"语义回放 {len(model)} 步(唯一标记 {marker})", "提交并验库"]
     verdict, layers, details = Verdict.PASS, [], []
     try:
-        prober.probe(page_url, wait_ms=ui.get("wait_ms", 4000), replay_actions=model)
+        prober.probe(page_url, wait_ms=ui.get("wait_ms", 4000), replay_actions=model,
+                     field_asserts=_render_marker(ui.get("field_asserts") or [], marker) or None)
     except Exception as e:  # noqa: BLE001
         if cleaner:
             cleaner.cleanup(marker)
@@ -183,6 +184,15 @@ def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = N
     if not steps_ok:
         verdict = Verdict.FAIL
         details += [f"回放失败: {r['target']} {r.get('error','')}" for r in rr if not r["ok"]]
+
+    # 字段联动/只读校验(前端行为,只能在页面上验)
+    if prober.field_check:
+        fok, flayer = prober.field_check
+        layers.append(flayer)
+        if not fok:
+            if verdict is Verdict.PASS:
+                verdict = Verdict.FAIL
+            details += [f"字段校验不一致: {r[0]}" for r in flayer.get("rows", []) if r[-1] == "✗"]
 
     write = prober.pick_write_call()
     if write is not None:

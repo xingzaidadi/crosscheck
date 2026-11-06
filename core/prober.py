@@ -60,6 +60,7 @@ class Prober:
         self.screenshots: list[dict] = []   # [{name, path}]
         self.rendered_rows: list[dict] = []  # DOM 实际显示的行(UI 渲染校验用)
         self.replay_results: list[dict] = []  # 语义动作回放每步结果(UI 写入用)
+        self.field_check: tuple | None = None  # (ok, 报告层):字段联动/只读校验结果
 
     # ───────────────────────── 抓取 ─────────────────────────
 
@@ -72,6 +73,7 @@ class Prober:
         actions: list[dict] | None = None,
         extract: dict | None = None,
         replay_actions: list[dict] | None = None,
+        field_asserts: list[dict] | None = None,
     ) -> list[Capture]:
         """
         打开 page_url,拦截流量,可选录视频/截图/跑声明式检索动作。
@@ -124,6 +126,13 @@ class Prober:
                     print(f"  语义回放中断: {e}")
                 page.wait_for_timeout(wait_ms)
                 shot("after_replay")
+                # 就地验字段(联动带出值 / 只读态)—— 页面还活着才能读
+                if field_asserts:
+                    from core.ui_field import check_fields
+                    try:
+                        self.field_check = check_fields(page, field_asserts)
+                    except Exception as e:  # noqa: BLE001
+                        self.field_check = (False, {"name": "UI 字段校验", "ok": False, "note": str(e)[:120]})
             elif actions:
                 from core.login import _run_steps
                 try:
