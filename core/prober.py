@@ -61,6 +61,7 @@ class Prober:
         self.rendered_rows: list[dict] = []  # DOM 实际显示的行(UI 渲染校验用)
         self.replay_results: list[dict] = []  # 语义动作回放每步结果(UI 写入用)
         self.field_check: tuple | None = None  # (ok, 报告层):字段联动/只读校验结果
+        self.value_reads: dict[str, str] = {}  # {选择器: 页面文本}:页签/按钮计算值校验用
 
     # ───────────────────────── 抓取 ─────────────────────────
 
@@ -74,6 +75,7 @@ class Prober:
         extract: dict | None = None,
         replay_actions: list[dict] | None = None,
         field_asserts: list[dict] | None = None,
+        value_selectors: list[str] | None = None,
     ) -> list[Capture]:
         """
         打开 page_url,拦截流量,可选录视频/截图/跑声明式检索动作。
@@ -195,6 +197,14 @@ class Prober:
                     shot("rendered")
                 except Exception as e:  # noqa: BLE001
                     print(f"  DOM 抽取失败(检查 extract 规则): {e}")
+
+            # 读指定选择器的页面文本(页签/按钮上的计数等),供"页面值↔库"校验(页面还活着)
+            for sel in (value_selectors or []):
+                try:
+                    loc = page.locator(sel).first
+                    self.value_reads[sel] = (loc.inner_text() or "").strip() if loc.count() else ""
+                except Exception:  # noqa: BLE001
+                    self.value_reads[sel] = ""
 
             # 保存/更新 Session 供回放复用(只在自己拥有的 context 上存;existing 模式是用户的真浏览器,不碰)
             if self.session_file and owns_context:

@@ -71,7 +71,8 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
     verdict, layers = Verdict.PASS, []
     try:
         prober.probe(page_url, wait_ms=ui.get("wait_ms", 5000),
-                     actions=ui.get("actions"), extract=ui.get("extract"))
+                     actions=ui.get("actions"), extract=ui.get("extract"),
+                     value_selectors=[a["selector"] for a in (ui.get("value_asserts") or [])])
     except Exception as e:  # noqa: BLE001
         return CaseResult(case_id=spec.case_id, verdict=Verdict.ENV_ERROR,
                           details=[f"页面渲染/抓取异常: {e}"], duration_s=round(time.time() - t0, 3),
@@ -85,6 +86,14 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
     layers.append(run_report.ui_layer(ui_res))
     if not ui_res.consistent:
         verdict = Verdict.FAIL
+
+    # 页签/按钮计算:页面显示的数 == 库真值
+    if ui.get("value_asserts"):
+        from core.ui_value import check_values
+        vok, vlayer = check_values(prober.value_reads, ui["value_asserts"], db)
+        layers.append(vlayer)
+        if not vok and verdict is Verdict.PASS:
+            verdict = Verdict.FAIL
     if picked is None:
         verdict = Verdict.ENV_ERROR
         layers.append({"name": "抓接口", "ok": False, "note": "没抓到页面触发的接口(检查 url_pattern / 是否需要操作)"})
