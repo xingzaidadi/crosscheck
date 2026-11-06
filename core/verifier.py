@@ -46,13 +46,14 @@ class Verifier:
     def __init__(self, db: DbClient):
         self.db = db
 
-    def verify(self, case: TestCase, marker: str, action: ActionResult) -> tuple[Verdict, list[str]]:
+    def verify(self, case: TestCase, marker: str, action: ActionResult,
+               vars: dict | None = None) -> tuple[Verdict, list[str]]:
         details: list[str] = []
         resp_ok, d = self._verify_response(case, action)
         details += d
         page_ok, d = self._verify_page(case, action)
         details += d
-        db_ok, d = self._verify_db(case, marker)
+        db_ok, d = self._verify_db(case, marker, vars)
         details += d
         verdict = Verdict.PASS if (resp_ok and page_ok and db_ok) else Verdict.FAIL
         if verdict is Verdict.PASS and not details:
@@ -90,10 +91,12 @@ class Verifier:
             return False, [f"页面预期未命中: {missing}"]
         return True, []
 
-    def _check_db_once(self, case: TestCase, marker: str) -> tuple[bool, list[str]]:
+    def _check_db_once(self, case: TestCase, marker: str, vars: dict | None = None) -> tuple[bool, list[str]]:
         ok, details = True, []
         for a in case.expected.db:
             where = a.where.replace(_MARKER_PH, marker)
+            for k, v in (vars or {}).items():
+                where = where.replace("{{" + k + "}}", str(v))
             try:
                 rows = self.db.query(f"SELECT * FROM {a.table} WHERE {where}")
             except Exception as e:  # noqa: BLE001
@@ -111,16 +114,16 @@ class Verifier:
                     details.append(f"[{a.table}] 字段 {col}: 预期 {expected!r} vs 实际 {got!r}")
         return ok, details
 
-    def _verify_db(self, case: TestCase, marker: str) -> tuple[bool, list[str]]:
+    def _verify_db(self, case: TestCase, marker: str, vars: dict | None = None) -> tuple[bool, list[str]]:
         # 异步场景(审批/事件翻转状态)需等待:配 verify_poll 则轮询至通过或超时,取最后一次结果。
         poll = (case.raw or {}).get("verify_poll") or {}
         timeout_s = float(poll.get("timeout_s") or 0)
         interval_s = float(poll.get("interval_s") or 2)
         if timeout_s <= 0:
-            return self._check_db_once(case, marker)
+            return self._check_db_once(case, marker, vars)
         deadline = time.time() + timeout_s
-        ok, details = self._check_db_once(case, marker)
+        ok, details = self._check_db_once(case, marker, vars)
         while not ok and time.time() < deadline:
             time.sleep(interval_s)
-            ok, details = self._check_db_once(case, marker)
+            ok, details = self._check_db_once(case, marker, vars)
         return ok, details

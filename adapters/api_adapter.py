@@ -85,14 +85,16 @@ class ApiAdapter(BaseAdapter):
             data = resp.text
         return ActionResult(ok=resp.status_code < 400, api_status=resp.status_code, api_body=data)
 
-    def perform(self, case: TestCase, marker: str) -> ActionResult:
+    def perform(self, case: TestCase, marker: str, vars: dict | None = None) -> ActionResult:
         raw = case.raw or {}
         request = dict(raw.get("request") or {})
         if not request:
             return ActionResult(ok=False, error="spec 无 request,无法执行写动作")
         if raw.get("marker_field") and "marker_field" not in request:
             request["marker_field"] = raw["marker_field"]
-        return self.call(request, {"marker": marker})
+        v = dict(vars or {})
+        v.setdefault("marker", marker)   # 前置造数抓到的值(如单号)也一并注入 {{占位}}
+        return self.call(request, v)
 
     def teardown(self) -> None:
         if self._client is not None:

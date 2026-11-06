@@ -56,12 +56,14 @@ def spec_to_testcase(spec) -> TestCase:
                     account_ref="", data_prep=None, steps=[], expected=expected, raw=raw)
 
 
-def _db_assert_layer(case: TestCase, db: DbClient, marker: str) -> dict:
+def _db_assert_layer(case: TestCase, db: DbClient, marker: str, vars: dict | None = None) -> dict:
     """验库层:按断言逐表逐字段列『预期 vs 实际』,给富报告。"""
     cols = ["表", "where", "预期行数", "实际行数", "字段", "预期", "实际", "一致"]
     rows, tables, ok_all = [], [], True
     for a in case.expected.db:
         where = a.where.replace("{{AUTOTEST_标记值}}", marker)
+        for k, v in (vars or {}).items():
+            where = where.replace("{{" + k + "}}", str(v))
         tables.append(a.table)
         try:
             got_rows = db.query(f"SELECT * FROM {a.table} WHERE {where}")
@@ -104,14 +106,23 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
     try:
         adapter.setup(case)
 
+        # 前置造数:逐个发请求造出所需状态单;capture 把返回里的值(如单号)抓进 vars,
+        # 供主动作/审批/断言用 {{var}} 引用(状态守卫/流转/编辑类用例的前提)。
+        vars = {"marker": marker}
         for prep in (case.raw.get("data_prep") or []):
-            r = adapter.call(prep, {"marker": marker})
+            r = adapter.call(prep, vars)
             did.append(f"造前置状态 {prep.get('method')} {prep.get('url')}")
             if not r.ok:
                 details.append(f"data_prep 失败: {r.error or r.api_status}")
+            for var, path in (prep.get("capture") or {}).items():
+                val = _dig(r.api_body, path)
+                if val is _MISSING:
+                    details.append(f"data_prep 未抓到 {var}(路径 {path})")
+                else:
+                    vars[var] = val
 
         guard.snapshot_before(case.expected)
-        action = adapter.perform(case, marker)
+        action = adapter.perform(case, marker, vars)
         did.append(f"提交需求 {req.get('method')} {req.get('url')}(唯一标记 {marker})")
         code = _dig(action.api_body, "code")
         doc_no = _dig(action.api_body, "data.demandRequestCode")
@@ -125,7 +136,7 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
         approve = case.raw.get("approve") or {}
         if approve:
             bk = _resolve_business_key(approve, action, db, marker)
-            avars = {"marker": marker}
+            avars = dict(vars)
             if bk is not None:
                 avars["businessKey"] = bk
             elif approve.get("business_key_from"):
@@ -159,7 +170,7 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
                 "actual": f"HTTP {ar.api_status} · {str(ar.api_body)[:160]}",
                 "note": "; ".join(appr_notes)})
 
-        verdict, vdetails = verifier.verify(case, marker, action)
+        verdict, vdetails = verifier.verify(case, marker, action, vars)
         details += vdetails
 
         dverdict, ddetails = guard.snapshot_after(case.expected, marker)
@@ -169,7 +180,7 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
                 verdict = dverdict
 
         if case.expected.db:
-            layers.append(_db_assert_layer(case, db, marker))
+            layers.append(_db_assert_layer(case, db, marker, vars))
     except Exception as e:  # noqa: BLE001
         verdict, details = Verdict.ENV_ERROR, [f"执行异常: {e}"]
         layers.append({"name": "执行异常", "ok": False, "note": str(e)})
