@@ -95,11 +95,19 @@ def discover(root_url: str, session_file: str | None = None, *, max_pages: int =
                     return
                 if url_pattern and url_pattern not in resp.url:
                     return
+                # 连请求体一起抓(对账建模要参数),另留响应 total 线索
+                body = None
+                try:
+                    post = req.post_data
+                    body = json.loads(post) if post else None
+                except Exception:  # noqa: BLE001
+                    body = req.post_data
                 apis_by_url.setdefault(cur["url"], [])
                 sig = (req.method, urlparse(resp.url).path)
                 if sig not in {(a["method"], a["path"]) for a in apis_by_url[cur["url"]]}:
                     apis_by_url[cur["url"]].append(
-                        {"method": req.method, "path": urlparse(resp.url).path, "url": resp.url})
+                        {"method": req.method, "path": urlparse(resp.url).path,
+                         "url": resp.url, "request_body": body})
             except Exception:  # noqa: BLE001
                 pass
         ctx.on("response", on_resp)
