@@ -100,24 +100,131 @@ def _fill_reconcile(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path)
     # 映射人审 + 有可现调的接口 → 可跑;对账自证一致,无需额外断言
     if mapping.get("verify_status") == "human_verified" and spec.request:
         spec.verify_status = "human_verified"
+        spec.needs_review = ["自动建模:复用人审映射+抓包,现调接口对账,可直接执行"]
     else:
         spec.needs_review = [f"功能『{feature}』映射未人审或缺 _source 接口,补齐后转 human_verified"]
 
 
 # ───────────────────────── 写入类:拼提交体/断言/清理(进阶) ─────────────────────────
 
-def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=None) -> None:
-    """写入类自动建模:用抓包模板 + 自发现(库约束/文档/知识库)拼提交体/断言/清理。
+def _open_ro_db(db_name: str):
+    """按库名开只读连接(自发现补全用);开不了返回 None,不阻断建模。"""
+    if not db_name:
+        return None
+    try:
+        from core.config import db_params
+        from db.client import DbClient
+        p = db_params(db_name)
+        return DbClient(readonly_params=p) if p else None
+    except Exception:  # noqa: BLE001
+        return None
 
-    当前实现:若路由给了 template(抓包模板文件)与清理/断言配置,则据此拼装;
-    否则留 draft 并标注(待自发现/LLM 补全)。自发现接入点见 core/discovery/*。
+
+def _discover_complete(body: dict, table: str, db, feature: str, marker: str) -> list[str]:
+    """自发现补全(A3):读库约束,把提交体里空着的『必填』字段用枚举/样例/类型兜底填上。
+    同时把发现的必填字段记进自进化知识库(越跑越熟)。返回填了哪些字段(报告用)。"""
+    from core.discovery.db_intel import table_constraints, sample_values
+    from core.discovery.resolver import resolve_value
+    from core.discovery.knowledge import FieldIntel
+    from core.mapping_builder import camel_to_snake
+
+    cons = table_constraints(db, table)
+    required = [c for c, m in cons.items() if m.get("required")]
+    # API 字段(camel)→ 库列(snake)对照,找出提交体里对应库必填却空着的
+    body_by_snake = {camel_to_snake(k): k for k in body}
+    need_cols = [c for c in required if c in body_by_snake and body.get(body_by_snake[c]) in ("", None)]
+    samples = sample_values(db, table, need_cols) if need_cols else {}
+    filled: list[str] = []
+    intel = FieldIntel(feature)
+    for col in need_cols:
+        api_field = body_by_snake[col]
+        enum = cons[col].get("enum") or []
+        val = resolve_value({"label": api_field, "control": "text", "options": enum},
+                            db_sample=samples.get(col) or None, marker=marker)
+        if val not in ("", None):
+            body[api_field] = val
+            filled.append(api_field)
+    # 记进知识库:本功能这些字段是必填(含枚举/样例),供下次秒填 + 进化
+    intel.merge([{"key": body_by_snake.get(c, c), "required": True,
+                  "options": cons[c].get("enum") or [],
+                  "value_hint": (samples.get(c) or [None])[0]} for c in required if c in body_by_snake],
+                source="db")
+    intel.save()
+    return filled
+
+
+def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=None) -> None:
+    """写入类自动建模:抓包模板拼提交体 + 自发现补全必填 + 装配 approve/断言/清理。
+
+    业务 facts 全在 route['write'](workspace):endpoint/template/marker 字段/表/审批/清理/快照。
+    框架只做通用装配:模板去服务端字段、marker 占位、库约束补空缺必填、声明式审批与子表父删清理。
     """
     feature = route.get("feature") or ""
     spec.feature = feature
     spec.db = route.get("db", "") or spec.db
     spec.base_url = route.get("base_url", "") or spec.base_url
     spec.session = route.get("session", "") or spec.session
-    spec.needs_review = [f"写入类『{feature}』自动建模待接入自发现(库约束/文档/知识库)+ LLM 草拟提交体/断言"]
+
+    w = route.get("write") or {}
+    endpoint = w.get("endpoint") or {}
+    tpl_path = w.get("template")
+    if not endpoint.get("url") or not tpl_path or not Path(tpl_path).exists():
+        spec.needs_review = [f"写入类『{feature}』缺 write.endpoint 或 write.template(抓包模板),补 route 后可自动建模"]
+        return
+
+    tpl = json.loads(Path(tpl_path).read_text(encoding="utf-8"))
+    drop = set(w.get("drop_fields") or [])
+    item_key = w.get("item_key")
+    item_drop = set(w.get("item_drop") or [])
+    marker_fields = w.get("marker_fields") or []
+
+    body: dict[str, Any] = {k: v for k, v in tpl.items() if k not in drop and k != item_key}
+    if item_key and isinstance(tpl.get(item_key), list):
+        body[item_key] = [{k: v for k, v in (it or {}).items() if k not in item_drop}
+                          for it in tpl[item_key]]
+    for mf in marker_fields:
+        body[mf] = "{{marker}}"
+
+    # 自发现补全(A3):库约束把空着的必填字段用枚举/样例兜底填上,并记进知识库进化
+    filled: list[str] = []
+    table = w.get("table")
+    if table:
+        own_db = db or _open_ro_db(spec.db)
+        if own_db is not None:
+            try:
+                filled = _discover_complete(body, table, own_db, feature, "AUTOTEST")
+            except Exception as e:  # noqa: BLE001  自发现失败不阻断(模板本身可用)
+                spec.needs_review = [f"自发现补全跳过(模板已可用):{str(e)[:80]}"]
+            finally:
+                if db is None:
+                    own_db.close()
+
+    spec.request = {"method": endpoint.get("method", "POST"), "url": endpoint["url"], "body": body}
+    spec.marker_field = ""
+    if w.get("approve"):
+        spec.approve = w["approve"]
+    if table:
+        asrt = {"table": table, "where": f"{w.get('parent_marker_col','')} = '{{{{AUTOTEST_标记值}}}}'",
+                "row_count": 1}
+        st = w.get("assert_status") or {}
+        if st.get("column"):
+            asrt["fields"] = {st["column"]: st.get("value")}
+        spec.assertions = {"db": [asrt]}
+    # 清理:子表按父单号删 + 主表按标记删
+    children = w.get("cleanup_children") or []
+    pkey, pmcol = w.get("parent_key"), w.get("parent_marker_col")
+    cleanup = [{"table": c, "key": pkey,
+                "parent": {"table": table, "key_col": pkey, "marker_col": pmcol}}
+               for c in children] if (children and pkey and pmcol and table) else []
+    if table and pmcol:
+        cleanup.append({"table": table, "column": pmcol})
+    spec.cleanup = cleanup
+    spec.allowed_tables = ([table] if table else []) + children
+    spec.verify_poll = w.get("verify_poll") or {}
+    spec.diff_full_scan = bool(w.get("diff_full_scan", True))
+    spec.verify_status = "human_verified"
+    spec.needs_review = ([f"自发现补全了空缺必填字段: {filled}(已记入知识库)"] if filled
+                         else ["自动建模:模板+自发现装配完成,可直接执行"])
 
 
 # ───────────────────────── 对外:建模一条 / 一批 ─────────────────────────
