@@ -32,6 +32,7 @@ from core.workspace import set_workspace, workspace_root, kb_dir, captures_dir, 
 from core.case_source import read_cases  # noqa: E402
 from core.spec import ExecSpec, from_raw, load_specs  # noqa: E402
 from core.modeler import model_cases, load_routes  # noqa: E402
+from core.parallel import run_pool  # noqa: E402
 from core.reporter import Reporter  # noqa: E402
 from core.interfaces import CaseResult, Verdict  # noqa: E402
 from core.reconciler import Reconciler  # noqa: E402
@@ -205,6 +206,27 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path) -> CaseResult:
     return _skip(spec, t0, f"{spec.mode} 模式暂不支持")
 
 
+def run_specs(specs, dry_run, run_dir, workers: int = 1):
+    """调度执行:只读(reconcile)类可并发(互不影响);写入/UI 串行(快照需安静库)。保序返回。"""
+    if workers <= 1:
+        out = []
+        for i, s in enumerate(specs, 1):
+            print(f"  [{i}/{len(specs)}] {s.case_id} {s.title[:40]} …", flush=True)
+            out.append(execute(s, dry_run, run_dir))
+        return out
+    results = [None] * len(specs)
+    read = [i for i, s in enumerate(specs) if s.mode == "reconcile"]
+    other = [i for i, s in enumerate(specs) if s.mode != "reconcile"]
+    print(f"  并发只读 {len(read)} 条(workers={workers})+ 串行写入/UI {len(other)} 条")
+    for i, r in zip(read, run_pool([specs[i] for i in read],
+                                   lambda s: execute(s, dry_run, run_dir), workers)):
+        results[i] = r
+    for i in other:
+        print(f"  [串行] {specs[i].case_id} {specs[i].title[:40]} …", flush=True)
+        results[i] = execute(specs[i], dry_run, run_dir)
+    return results
+
+
 def main():
     ap = argparse.ArgumentParser(description="批量执行用例 → 汇总报告")
     ap.add_argument("--workspace", default=None, help="业务数据目录")
@@ -219,6 +241,7 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="只草拟/校验,不连库执行")
     ap.add_argument("--run-id", dest="run_id", default=None, help="运行标识(默认 run_时间戳)")
     ap.add_argument("--run-dir", dest="run_dir", default=None, help="运行目录(默认 <workspace>/runs/<run-id>)")
+    ap.add_argument("--workers", type=int, default=1, help="只读(对账)类并发数;写入/UI 仍串行。默认 1=全串行")
     ap.add_argument("--out", default=None, help="(已弃用)报告现固定输出到运行目录 report.html")
     args = ap.parse_args()
 
@@ -255,10 +278,7 @@ def main():
     run_dir.mkdir(parents=True, exist_ok=True)
     print(f"[batch] 运行目录: {run_dir}")
 
-    results = []
-    for i, spec in enumerate(specs, 1):
-        print(f"  [{i}/{len(specs)}] {spec.case_id} {spec.title[:40]} …", flush=True)
-        results.append(execute(spec, args.dry_run, run_dir))
+    results = run_specs(specs, args.dry_run, run_dir, args.workers)
 
     reporter = Reporter()
     for r in results:
