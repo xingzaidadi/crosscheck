@@ -52,6 +52,7 @@ def spec_to_testcase(spec) -> TestCase:
         "data_prep": spec.data_prep,
         "verify_poll": spec.verify_poll,
         "event_asserts": spec.assertions.get("events") or [],
+        "roundtrip": spec.assertions.get("roundtrip") or {},
     }
     return TestCase(case_id=spec.case_id, feature=spec.feature or spec.case_id,
                     account_ref="", data_prep=None, steps=[], expected=expected, raw=raw)
@@ -185,6 +186,34 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
             layers += elayers
             if not eok and verdict is Verdict.PASS:
                 verdict = Verdict.FAIL
+
+        # 全字段对账:写后拉详情,把提交体逐字段比持久化记录(漏填/改写/截断现形)
+        rt = case.raw.get("roundtrip") or {}
+        if rt and rt.get("detail") and action is not None:
+            from core import roundtrip as _rt
+            code = _dig(action.api_body, rt.get("code_from", "data.demandRequestCode"))
+            if code is _MISSING:
+                details.append("全字段对账:未取到单号(检查 code_from)")
+            else:
+                det = rt["detail"]
+                ad2 = ApiAdapter(base_url=det.get("base_url") or adapter.base_url,
+                                 session_file=det.get("session") or session_file or spec.session)
+                try:
+                    ad2.setup()
+                    dr = ad2.call(det, {**vars, "code": code})
+                finally:
+                    ad2.teardown()
+                persisted = _dig(dr.api_body, rt.get("detail_data_path", "data"))
+                submitted = adapter._render(req.get("body"), vars)
+                rok, mism, rlayer = _rt.compare(
+                    submitted, persisted if persisted is not _MISSING else {},
+                    ignore=rt.get("ignore") or [], item_key=rt.get("item_key", ""),
+                    item_ignore=rt.get("item_ignore") or [])
+                layers.append(rlayer)
+                if not rok:
+                    details += [f"字段不一致: {m[0]} 提交{m[1]!r} vs 落库{m[2]!r}" for m in mism]
+                    if verdict is Verdict.PASS:
+                        verdict = Verdict.FAIL
 
         dverdict, ddetails = guard.snapshot_after(case.expected, marker)
         if dverdict is not Verdict.PASS:
