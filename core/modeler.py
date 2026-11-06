@@ -120,6 +120,30 @@ def _open_ro_db(db_name: str):
         return None
 
 
+def _is_name_key(key: str) -> bool:
+    """单据『标题/名称』字段(造数唯一标记放这里)。收紧匹配,避免把 *UserName/*OrgName
+    这类展示名误当标记字段而覆盖真实业务值 —— 只认标题类 + 恰为 name。"""
+    low = key.lower()
+    return ("title" in low or "标题" in key or "名称" in key or low == "name")
+
+
+def _derive_children(db, parent_table: str, parent_key: str) -> list[str]:
+    """从库 schema 推导子表:同模块(同前缀)、含同一父键列的其它表。免人工列清理子表。"""
+    if not db or not parent_table or not parent_key:
+        return []
+    prefix = parent_table.split("_")[0] + "_"   # 同模块前缀,避免误扫全库无关表
+    out = []
+    for t in db.tables():
+        if t == parent_table or not t.startswith(prefix):
+            continue
+        try:
+            if parent_key in db.columns(t):
+                out.append(t)
+        except Exception:  # noqa: BLE001
+            pass
+    return sorted(out)
+
+
 def _discover_complete(body: dict, table: str, db, feature: str, marker: str) -> list[str]:
     """自发现补全(A3):读库约束,把提交体里空着的『必填』字段用枚举/样例/类型兜底填上。
     同时把发现的必填字段记进自进化知识库(越跑越熟)。返回填了哪些字段(报告用)。"""
@@ -192,6 +216,11 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
         spec.needs_review = [f"写入类『{feature}』缺 write.endpoint 或 write.template(抓包模板),补 route 后可自动建模"]
         return
 
+    # 标记字段:显式配的 + 模板里名称/标题类字段(自动认出,造数标记放这里)
+    tpl_keys = list(json.loads(Path(tpl_path).read_text(encoding="utf-8")).keys())
+    marker_fields = list(w.get("marker_fields") or [])
+    marker_fields += [k for k in tpl_keys if _is_name_key(k) and k not in marker_fields]
+
     # 前置造数:每个 data_prep 项(默认沿用主模板,可各自覆盖 template/body_set)拼出请求体 +
     # capture(抓单号/版本进 vars,供主动作/断言用 {{var}} 引用)。状态守卫/流转/编辑类的前提。
     preps = []
@@ -200,7 +229,7 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
                "drop_fields": dp.get("drop_fields", w.get("drop_fields")),
                "item_key": dp.get("item_key", w.get("item_key")),
                "item_drop": dp.get("item_drop", w.get("item_drop")),
-               "marker_fields": dp.get("marker_fields", w.get("marker_fields")),
+               "marker_fields": dp.get("marker_fields", marker_fields),
                "body_set": dp.get("body_set")}
         preps.append({"method": dp.get("method", "POST"), "url": dp["url"],
                       "body": _build_body(cfg), "capture": dp.get("capture") or {}})
@@ -208,36 +237,39 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
 
     body = _build_body({"template": tpl_path, "drop_fields": w.get("drop_fields"),
                         "item_key": w.get("item_key"), "item_drop": w.get("item_drop"),
-                        "marker_fields": w.get("marker_fields"), "body_set": w.get("body_set")})
+                        "marker_fields": marker_fields, "body_set": w.get("body_set")})
 
-    # 自发现补全(A3):库约束把空着的必填字段用枚举/样例兜底填上,并记进知识库进化
-    filled: list[str] = []
     table = w.get("table")
+    pkey, pmcol = w.get("parent_key"), w.get("parent_marker_col")
+    children = w.get("cleanup_children")   # None=未配,交给 schema 自动推导
+    filled: list[str] = []
+    # 开一次只读库:既做自发现补全必填,又按 schema 自动推导清理子表(免人工列)
     if table:
         own_db = db or _open_ro_db(spec.db)
         if own_db is not None:
             try:
                 filled = _discover_complete(body, table, own_db, feature, "AUTOTEST")
+                if children is None and pkey:
+                    children = _derive_children(own_db, table, pkey)
             except Exception as e:  # noqa: BLE001  自发现失败不阻断(模板本身可用)
-                spec.needs_review = [f"自发现补全跳过(模板已可用):{str(e)[:80]}"]
+                spec.needs_review = [f"自发现补全/子表推导跳过(模板已可用):{str(e)[:80]}"]
             finally:
                 if db is None:
                     own_db.close()
+    children = children or []
 
     spec.request = {"method": endpoint.get("method", "POST"), "url": endpoint["url"], "body": body}
     spec.marker_field = ""
     if w.get("approve"):
         spec.approve = w["approve"]
     if table:
-        where = w.get("assert_where") or f"{w.get('parent_marker_col','')} = '{{{{AUTOTEST_标记值}}}}'"
+        where = w.get("assert_where") or f"{pmcol or ''} = '{{{{AUTOTEST_标记值}}}}'"
         asrt = {"table": table, "where": where, "row_count": 1}
         st = w.get("assert_status") or {}
         if st.get("column"):
             asrt["fields"] = {st["column"]: st.get("value")}
         spec.assertions = {"db": [asrt]}
     # 清理:子表按父单号删 + 主表按标记删
-    children = w.get("cleanup_children") or []
-    pkey, pmcol = w.get("parent_key"), w.get("parent_marker_col")
     cleanup = [{"table": c, "key": pkey,
                 "parent": {"table": table, "key_col": pkey, "marker_col": pmcol}}
                for c in children] if (children and pkey and pmcol and table) else []
