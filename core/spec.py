@@ -58,6 +58,7 @@ class ExecSpec:
     marker_field: str = ""                                    # body 里放唯一标记的字段名(造数可识别/可清理)
     approve: dict[str, Any] = field(default_factory=dict)     # 一键审批请求(可选,同 request 结构)
     verify_poll: dict[str, Any] = field(default_factory=dict)  # 异步验库等待 {timeout_s, interval_s};空=只查一次
+    prepare_state: str = ""                                    # 声明前置状态(查 state_recipes/<feature>.json 配方造单);空=不造
 
     # UI 渲染校验(mode=ui / reconcile 附加):证明"页面显示"== 接口(再接库对账 = 三层对齐)
     #   {page_url, url_pattern, actions[], extract:{rows_selector, columns:{domField:cellSelector}},

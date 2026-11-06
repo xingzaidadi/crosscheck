@@ -161,6 +161,15 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path) -> CaseResult:
     if spec.verify_status != "human_verified":
         return _skip(spec, t0, "未人审(draft):补全 assertions / request 并转 human_verified 后再执行", layer="人审")
 
+    # 前置状态:声明 prepare_state 则按配方展开成 data_prep(造出该状态的单)
+    if getattr(spec, "prepare_state", "") and not spec.data_prep:
+        from core.state_recipe import recipe_steps, available_states
+        steps = recipe_steps(spec.feature, spec.prepare_state)
+        if not steps:
+            return _skip(spec, t0, f"缺状态配方:{spec.feature}/{spec.prepare_state}"
+                                   f"(可用 {available_states(spec.feature) or '无'};在 state_recipes/ 配)", layer="前置状态")
+        spec.data_prep = steps
+
     if spec.mode == "reconcile":
         verdict, details, rep = _run_reconcile(spec, case_dir)
         return CaseResult(case_id=spec.case_id, verdict=verdict, details=details,
