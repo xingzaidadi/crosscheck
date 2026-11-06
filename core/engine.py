@@ -106,6 +106,7 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
 
     verdict, details = Verdict.PASS, []
     did, layers, bk, action, ar = [], [], None, None, None
+    env_reasons, fail_reasons = [], []   # 执行链完整性:前置未成立→ENV;该成功却失败→FAIL。杜绝假通过
     cleaner.register(case, marker)
     try:
         adapter.setup(case)
@@ -117,11 +118,15 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
             r = adapter.call(prep, vars)
             did.append(f"造前置状态 {prep.get('method')} {prep.get('url')}")
             if not r.ok:
-                details.append(f"data_prep 失败: {r.error or r.api_status}")
+                msg = f"data_prep 失败: {r.error or r.api_status}"
+                details.append(msg)
+                env_reasons.append(msg)
             for var, path in (prep.get("capture") or {}).items():
                 val = _dig(r.api_body, path)
                 if val is _MISSING:
-                    details.append(f"data_prep 未抓到 {var}(路径 {path})")
+                    msg = f"data_prep 未抓到 {var}(路径 {path})"
+                    details.append(msg)
+                    env_reasons.append(msg)
                 else:
                     vars[var] = val
 
@@ -144,6 +149,9 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
             "actual": f"HTTP {action.api_status} · code={'—' if code is _MISSING else code}"
                       f" · 单号={'—' if doc_no is _MISSING else doc_no}",
             "note": str(action.api_body)[:300]})
+        # 期望成功的写动作却失败 → 执行未成立(负向用例 rejected 期望失败,不算)
+        if not action.ok and not (case.raw.get("response_assert") or {}).get("rejected"):
+            env_reasons.append(f"主写动作失败: HTTP {action.api_status}(期望成功)")
 
         approve = case.raw.get("approve") or {}
         if approve:
@@ -181,6 +189,8 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
                 "expected": "审批接口返回 " + str((approve.get("expect") or {}).get("body") or "HTTP<400"),
                 "actual": f"HTTP {ar.api_status} · {str(ar.api_body)[:160]}",
                 "note": "; ".join(appr_notes)})
+            if not appr_ok:
+                fail_reasons.append("审批未通过(传输失败或响应不符预期)")
 
         verdict, vdetails = verifier.verify(case, marker, action, vars)
         details += vdetails
@@ -274,6 +284,14 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
 
         if case.expected.db:
             layers.append(_db_assert_layer(case, db, marker, vars))
+
+        # 执行链完整性收口(阶段0 防假通过):前置/审批/主动作未成立,绝不判 PASS
+        if fail_reasons and verdict is Verdict.PASS:
+            verdict = Verdict.FAIL
+            details = ["执行链失败,不计通过:"] + fail_reasons + details
+        if env_reasons and verdict is Verdict.PASS:
+            verdict = Verdict.ENV_ERROR
+            details = ["前置未成立,不计通过:"] + env_reasons + details
     except Exception as e:  # noqa: BLE001
         verdict, details = Verdict.ENV_ERROR, [f"执行异常: {e}"]
         layers.append({"name": "执行异常", "ok": False, "note": str(e)})
