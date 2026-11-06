@@ -64,6 +64,15 @@ class Verifier:
         ra = (case.raw or {}).get("response_assert") or {}
         if not ra:
             return True, []
+        # 负向断言:预期被拒(状态守卫/数据校验/乐观锁冲突类)。业务成功 = HTTP<400 且 code∈{0,200}/success=true;
+        # 预期被拒而实际成功 → 判失败。短路,正向字段断言不再适用于"被拒"场景。
+        if ra.get("rejected"):
+            code = _dig(action.api_body, "code")
+            succ = _dig(action.api_body, "success")
+            is_success = bool(action.ok) and (str(code) in ("0", "200") or succ is True)
+            if is_success:
+                return False, [f"预期被拒,但响应成功(code={'—' if code is _MISSING else code})"]
+            return True, [f"响应如预期被拒(code={'—' if code is _MISSING else code})"]
         ok, details = True, []
         if not action.ok and action.error:
             ok = False
