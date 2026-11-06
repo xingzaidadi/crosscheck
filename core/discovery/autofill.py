@@ -17,7 +17,7 @@ def fill_field(page: Any, field: dict, value: Any, ui: dict | None = None) -> bo
     ctrl = field.get("control", "text")
     if value is None or not label:
         return False
-    item = page.locator(f'{ui["form_item"]}:has-text("{label}")').first
+    item = page.locator(ui["form_item"]).filter(has_text=label).first
     try:
         if ctrl in ("text", "number", "textarea"):
             ph = field.get("placeholder")
