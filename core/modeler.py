@@ -153,11 +153,31 @@ def _discover_complete(body: dict, table: str, db, feature: str, marker: str) ->
     return filled
 
 
-def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=None) -> None:
-    """写入类自动建模:抓包模板拼提交体 + 自发现补全必填 + 装配 approve/断言/清理。
+def _build_body(cfg: dict) -> dict:
+    """从抓包模板拼请求体:去服务端字段、marker 注占位、item 去自增、body_set 覆盖特定字段。
+    cfg: {template, drop_fields, item_key, item_drop, marker_fields, body_set}。
+    body_set 可放 {{draftCode}} 之类占位,执行期由前置造数抓到的 vars 填入。"""
+    tpl = json.loads(Path(cfg["template"]).read_text(encoding="utf-8"))
+    drop = set(cfg.get("drop_fields") or [])
+    item_key = cfg.get("item_key")
+    item_drop = set(cfg.get("item_drop") or [])
+    body: dict[str, Any] = {k: v for k, v in tpl.items() if k not in drop and k != item_key}
+    if item_key and isinstance(tpl.get(item_key), list):
+        body[item_key] = [{k: v for k, v in (it or {}).items() if k not in item_drop}
+                          for it in tpl[item_key]]
+    for mf in (cfg.get("marker_fields") or []):
+        body[mf] = "{{marker}}"
+    for k, v in (cfg.get("body_set") or {}).items():
+        body[k] = v
+    return body
 
-    业务 facts 全在 route['write'](workspace):endpoint/template/marker 字段/表/审批/清理/快照。
-    框架只做通用装配:模板去服务端字段、marker 占位、库约束补空缺必填、声明式审批与子表父删清理。
+
+def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=None) -> None:
+    """写入类自动建模:抓包模板拼提交体 + 前置造数串联 + 自发现补全必填 + 装配 approve/断言/清理。
+
+    业务 facts 全在 route['write'](workspace):endpoint/template/marker/表/审批/清理/快照/前置造数。
+    框架只做通用装配:模板去服务端字段、marker 占位、前置造数抓单号串联、库约束补空缺必填、
+    声明式审批与子表父删清理。
     """
     feature = route.get("feature") or ""
     spec.feature = feature
@@ -172,18 +192,23 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
         spec.needs_review = [f"写入类『{feature}』缺 write.endpoint 或 write.template(抓包模板),补 route 后可自动建模"]
         return
 
-    tpl = json.loads(Path(tpl_path).read_text(encoding="utf-8"))
-    drop = set(w.get("drop_fields") or [])
-    item_key = w.get("item_key")
-    item_drop = set(w.get("item_drop") or [])
-    marker_fields = w.get("marker_fields") or []
+    # 前置造数:每个 data_prep 项(默认沿用主模板,可各自覆盖 template/body_set)拼出请求体 +
+    # capture(抓单号/版本进 vars,供主动作/断言用 {{var}} 引用)。状态守卫/流转/编辑类的前提。
+    preps = []
+    for dp in (w.get("data_prep") or []):
+        cfg = {"template": dp.get("template", tpl_path),
+               "drop_fields": dp.get("drop_fields", w.get("drop_fields")),
+               "item_key": dp.get("item_key", w.get("item_key")),
+               "item_drop": dp.get("item_drop", w.get("item_drop")),
+               "marker_fields": dp.get("marker_fields", w.get("marker_fields")),
+               "body_set": dp.get("body_set")}
+        preps.append({"method": dp.get("method", "POST"), "url": dp["url"],
+                      "body": _build_body(cfg), "capture": dp.get("capture") or {}})
+    spec.data_prep = preps
 
-    body: dict[str, Any] = {k: v for k, v in tpl.items() if k not in drop and k != item_key}
-    if item_key and isinstance(tpl.get(item_key), list):
-        body[item_key] = [{k: v for k, v in (it or {}).items() if k not in item_drop}
-                          for it in tpl[item_key]]
-    for mf in marker_fields:
-        body[mf] = "{{marker}}"
+    body = _build_body({"template": tpl_path, "drop_fields": w.get("drop_fields"),
+                        "item_key": w.get("item_key"), "item_drop": w.get("item_drop"),
+                        "marker_fields": w.get("marker_fields"), "body_set": w.get("body_set")})
 
     # 自发现补全(A3):库约束把空着的必填字段用枚举/样例兜底填上,并记进知识库进化
     filled: list[str] = []
@@ -204,8 +229,8 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
     if w.get("approve"):
         spec.approve = w["approve"]
     if table:
-        asrt = {"table": table, "where": f"{w.get('parent_marker_col','')} = '{{{{AUTOTEST_标记值}}}}'",
-                "row_count": 1}
+        where = w.get("assert_where") or f"{w.get('parent_marker_col','')} = '{{{{AUTOTEST_标记值}}}}'"
+        asrt = {"table": table, "where": where, "row_count": 1}
         st = w.get("assert_status") or {}
         if st.get("column"):
             asrt["fields"] = {st["column"]: st.get("value")}
