@@ -15,6 +15,7 @@ CaseResult.report 的结构(由各执行器填充):
 from __future__ import annotations
 
 import html
+import json
 import time
 from pathlib import Path
 
@@ -158,5 +159,62 @@ table.dt th{{background:#f0f3f6}}
 <div class=s>运行 {run_id} · 共 {n} · <b style='color:#7ee787'>通过 {npass}</b> · <b style='color:#ff7b72'>失败 {nfail}</b> · 跳过 {nskip} · 生成 {time.strftime('%Y-%m-%d %H:%M:%S')}</div></header>
 <main>{''.join(cards)}</main></body></html>"""
     out = run_dir / "report.html"
+    out.write_text(doc, encoding="utf-8")
+    # 机器可读小结:供跨运行总览(render_index)聚合
+    (run_dir / "summary.json").write_text(json.dumps({
+        "run_id": run_id, "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "total": n, "pass": npass, "fail": nfail, "skip": nskip,
+        "env_error": sum(1 for r in results if r.verdict is Verdict.ENV_ERROR),
+        "cases": [{"case_id": r.case_id, "title": r.title, "verdict": r.verdict.value,
+                   "kind": r.kind, "mode": r.mode, "duration_s": r.duration_s} for r in results],
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    return out
+
+
+def render_index(runs_root: Path) -> Path | None:
+    """扫 runs_root 下各次运行的 summary.json,出一页总览 index.html:历次通过率 + 直达各报告。"""
+    runs_root = Path(runs_root)
+    rows, pts = [], []
+    for d in sorted(runs_root.glob("run_*"), reverse=True):
+        sj = d / "summary.json"
+        if not sj.exists():
+            continue
+        try:
+            s = json.loads(sj.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        tot, pz, fl = s.get("total", 0), s.get("pass", 0), s.get("fail", 0)
+        rate = (pz / tot * 100) if tot else 0
+        pts.append(rate)
+        rows.append(
+            f"<tr><td><a href='{_esc(d.name)}/report.html'>{_esc(d.name)}</a></td>"
+            f"<td>{_esc(s.get('generated_at',''))}</td><td>{tot}</td>"
+            f"<td class=p>{pz}</td><td class=f>{fl}</td><td>{s.get('skip',0)}</td>"
+            f"<td><b>{rate:.0f}%</b></td></tr>")
+    if not rows:
+        return None
+    # 通过率趋势(老→新)做个极简 sparkline 条
+    spark = "".join(
+        f"<span title='{v:.0f}%' style='display:inline-block;width:8px;margin-right:2px;"
+        f"height:{max(3,int(v*0.4))}px;background:{'#1a7f37' if v>=99 else '#9a6700' if v>=50 else '#cf222e'};"
+        f"vertical-align:bottom'></span>" for v in reversed(pts))
+    doc = f"""<!doctype html><html lang=zh><head><meta charset=utf-8><title>crosscheck 运行总览</title>
+<style>
+body{{font:14px/1.7 -apple-system,Segoe UI,Arial,sans-serif;margin:0;background:#f6f8fa;color:#1f2328}}
+header{{background:#24292f;color:#fff;padding:16px 28px}}
+main{{max-width:900px;margin:0 auto;padding:20px}}
+table{{border-collapse:collapse;width:100%;background:#fff;border:1px solid #d0d7de;border-radius:8px;overflow:hidden}}
+th,td{{border-bottom:1px solid #eaecef;padding:8px 12px;text-align:left;font-size:13px}}
+th{{background:#f0f3f6}} td.p{{color:#1a7f37;font-weight:600}} td.f{{color:#cf222e;font-weight:600}}
+.spark{{background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:14px;margin:0 0 16px}}
+</style></head><body>
+<header><div style='font-size:18px;font-weight:600'>crosscheck 运行总览</div>
+<div style='font-size:13px;color:#c9d1d9;margin-top:6px'>共 {len(rows)} 次运行 · 生成 {time.strftime('%Y-%m-%d %H:%M:%S')}</div></header>
+<main>
+<div class=spark><b>通过率趋势</b>(老 → 新)<div style='margin-top:8px;height:44px'>{spark}</div></div>
+<table><thead><tr><th>运行</th><th>时间</th><th>共</th><th>通过</th><th>失败</th><th>跳过</th><th>通过率</th></tr></thead>
+<tbody>{''.join(rows)}</tbody></table>
+</main></body></html>"""
+    out = runs_root / "index.html"
     out.write_text(doc, encoding="utf-8")
     return out

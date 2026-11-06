@@ -269,6 +269,9 @@ def main():
     # 用例/数据/报告都在 run 文件夹里,自成一体
     print(f"\n  ✓ 报告: {report_path}")
     print(f"  ✓ 该次全部资料在: {run_dir}")
+    index_path = run_report.render_index(run_dir.parent)   # 跨运行总览(通过率趋势 + 直达各报告)
+    if index_path:
+        print(f"  ✓ 运行总览: {index_path}")
 
 
 if __name__ == "__main__":
