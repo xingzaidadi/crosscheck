@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.discovery.fields import DEFAULT_UI
+from core.ui_heal import resolve_input
 
 
 def _item(page, label: str, ui: dict):
@@ -26,9 +27,13 @@ def _item(page, label: str, ui: dict):
     return page.locator(ui["form_item"]).filter(has_text=label).first
 
 
-def _text(page, label, value, ui) -> None:
-    it = _item(page, label, ui)
-    it.locator("input, textarea").first.fill(str(value), timeout=4000)
+def _text(page, label, value, ui) -> str:
+    """多策略定位输入控件并填;返回命中的策略名(非 form-item = 发生自愈)。"""
+    loc, strat = resolve_input(page, label, ui)
+    if loc is None:
+        raise RuntimeError(f"找不到字段『{label}』的输入控件(主/备策略均失效)")
+    loc.fill(str(value), timeout=4000)
+    return strat
 
 
 def _select(page, label, value, ui) -> None:
@@ -51,18 +56,19 @@ def _cascader(page, label, path, ui) -> None:
         page.wait_for_timeout(150)
 
 
-def _date(page, label, value, ui) -> None:
-    """日期:优先直接填 input(多数组件接受键入);失败则点开选面板里当天/匹配格。"""
-    it = _item(page, label, ui)
-    inp = it.locator("input").first
+def _date(page, label, value, ui) -> str:
+    """日期:多策略定位 input,优先直接键入;失败则点开选面板里匹配格。返回命中的策略名。"""
+    inp, strat = resolve_input(page, label, ui)
+    if inp is None:
+        raise RuntimeError(f"找不到日期字段『{label}』")
     try:
         inp.fill(str(value), timeout=2500)
         inp.press("Enter")
-        return
     except Exception:  # noqa: BLE001
         inp.click(timeout=2500)
         page.wait_for_timeout(250)
         page.get_by_text(str(value), exact=True).first.click(timeout=2500)
+    return strat
 
 
 def _grid_cell(page, column, value, ui, row: int = 0) -> None:
@@ -103,21 +109,25 @@ def replay(page, actions: list[dict], ui: dict | None = None) -> list[dict]:
         act = a.get("action", "text")
         target = a.get("label") or a.get("column") or a.get("text") or a.get("name") or ""
         try:
+            strat = ""
             if act in ("text", "number", "textarea"):
-                _text(page, a["label"], a.get("value", ""), ui)
+                strat = _text(page, a["label"], a.get("value", ""), ui)
             elif act == "select":
                 _select(page, a["label"], a.get("value", ""), ui)
             elif act == "cascader":
                 _cascader(page, a["label"], a.get("path") or [], ui)
             elif act == "date":
-                _date(page, a["label"], a.get("value", ""), ui)
+                strat = _date(page, a["label"], a.get("value", ""), ui)
             elif act == "grid_cell":
                 _grid_cell(page, a["column"], a.get("value", ""), ui, int(a.get("row", 0)))
             elif act == "click":
                 _click(page, a, ui)
             else:
                 raise RuntimeError(f"未知动作 {act}")
-            results.append({"action": act, "target": target, "ok": True, "error": ""})
+            row = {"action": act, "target": target, "ok": True, "error": ""}
+            if strat and strat != "form-item":   # 走了备用策略 = 发生自愈,标出来供回写知识待审
+                row["heal"] = strat
+            results.append(row)
         except Exception as e:  # noqa: BLE001
             results.append({"action": act, "target": target, "ok": False, "error": str(e)[:120]})
     return results
