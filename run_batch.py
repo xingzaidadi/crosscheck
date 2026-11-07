@@ -249,6 +249,7 @@ def main():
     ap.add_argument("--save-specs", dest="save_specs", default=None,
                     help="(配 --auto-model)把自动建模出的规格落盘到该目录,便于人审")
     ap.add_argument("--limit", type=int, default=0, help="只跑前 N 条(0=全部)")
+    ap.add_argument("--only", default=None, help="只跑这些 case_id(逗号分隔,如 TC22,TC21),用于定点复跑")
     ap.add_argument("--dry-run", action="store_true", help="只草拟/校验,不连库执行")
     ap.add_argument("--run-id", dest="run_id", default=None, help="运行标识(默认 run_时间戳)")
     ap.add_argument("--run-dir", dest="run_dir", default=None, help="运行目录(默认 <workspace>/runs/<run-id>)")
@@ -282,6 +283,10 @@ def main():
     else:
         print("  ✗ 需指定 --excel 或 --specs"); sys.exit(2)
 
+    if args.only:
+        want = {x.strip() for x in args.only.split(",") if x.strip()}
+        specs = [s for s in specs if s.case_id in want]
+        print(f"[batch] --only 过滤后 {len(specs)} 条: {sorted(s.case_id for s in specs)}")
     if args.limit > 0:
         specs = specs[:args.limit]
 

@@ -289,7 +289,8 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
         spec.approve = w["approve"]
     if table:
         where = w.get("assert_where") or f"{pmcol or ''} = '{{{{AUTOTEST_标记值}}}}'"
-        asrt = {"table": table, "where": where, "row_count": 1}
+        # 行数可配(默认 1):负向被拒类用 0 断言"未落库",幂等类仍为 1
+        asrt = {"table": table, "where": where, "row_count": w.get("assert_row_count", 1)}
         st = w.get("assert_status") or {}
         if st.get("column"):
             asrt["fields"] = {st["column"]: st.get("value")}
@@ -298,6 +299,10 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
         for extra in (w.get("extra_db_asserts") or []):
             db_asserts.append(dict(extra))
         spec.assertions = {"db": db_asserts}
+    # 响应/不变量断言直通(负向被拒 rejected、幂等、全字段对账、副作用防护、事件):route 声明即生效,零业务
+    for key in ("response", "idempotent", "roundtrip", "unchanged", "events"):
+        if w.get(key):
+            spec.assertions[key] = w[key]
     # 清理:子表按父单号删 + 主表按标记删
     cleanup = [{"table": c, "key": pkey,
                 "parent": {"table": table, "key_col": pkey, "marker_col": pmcol}}
