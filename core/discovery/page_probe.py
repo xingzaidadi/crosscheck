@@ -175,6 +175,90 @@ def probe_page_extract(page_url: str, *, session_file: str | None = None,
     return {"extract": extract, "api_rows": cap["rows"] or [], "tables": tables, "api_total": cap["total"]}
 
 
+_DETAIL_JS = """()=>{
+  // 通用找"标签-值"对:描述列表/表单项,标签子节点含 label、值子节点含 content/value
+  const groups=['[class*=descriptions-item]','[class*=descriptions__item]','[class*=form-item]','[class*=detail-item]','[class*=desc-item]'];
+  let best={pairs:[],label_sel:'',content_sel:'',n:0};
+  for(const g of groups){
+    const items=document.querySelectorAll(g); if(!items.length) continue;
+    const pairs=[]; let lsel='',csel='';
+    items.forEach(it=>{
+      const lab=it.querySelector('[class*=label]');
+      const val=it.querySelector('[class*=content],[class*=value]');
+      if(lab&&val){ pairs.push({label:lab.innerText.trim(), value:val.innerText.trim()});
+        if(!lsel){ lsel=g+' [class*=label]'; csel=g+' [class*=content],'+g+' [class*=value]'; } }
+    });
+    if(pairs.length>best.n) best={pairs,label_sel:lsel,content_sel:csel,n:pairs.length};
+  }
+  return best;
+}"""
+
+
+def build_detail_extract(pairs: list[dict], api_obj: dict, *, label_sel: str, content_sel: str,
+                         api_rows_path: str = "data") -> dict:
+    """详情面板:标签-值对 + 接口单对象 → ui.extract(fields 模式)+ dom_to_api(按值绑定)。"""
+    api_norm = {k: _norm(v) for k, v in (api_obj or {}).items() if not isinstance(v, (dict, list))}
+    d2a, used = {}, set()
+    for p in pairs:
+        lab = (p.get("label") or "").strip()
+        dv = _norm(p.get("value"))
+        if not lab or dv in ("", "-", "—"):
+            continue
+        slug = re.sub(r"\s+", "", lab)
+        for k, v in api_norm.items():
+            if v != "" and v == dv and k not in used:
+                d2a[slug] = k
+                used.add(k)
+                break
+    return {
+        "extract": {"fields": {"label": label_sel, "value": content_sel}},
+        "dom_to_api": d2a,
+        "api_rows_path": api_rows_path,
+        "_matched": len(d2a),
+        "_pairs": len(pairs),
+    }
+
+
+def probe_detail_fields(page_url: str, *, session_file: str | None = None,
+                        api_pattern: str = "", actions: list | None = None,
+                        api_rows_path: str = "data", wait_ms: int = 3500,
+                        headless: bool = True) -> dict:
+    """实探详情页:触发(点进详情)→抓详情接口(data 为单对象)→dump 标签-值对→build_detail_extract。"""
+    from playwright.sync_api import sync_playwright
+    cap = {"obj": None}
+    with sync_playwright() as p:
+        b = p.chromium.launch(headless=headless)
+        kw = {"viewport": {"width": 1600, "height": 900}}
+        if session_file:
+            kw["storage_state"] = session_file
+        ctx = b.new_context(**kw); pg = ctx.new_page()
+
+        def on_resp(resp):
+            if api_pattern and api_pattern in resp.url and cap["obj"] is None:
+                try:
+                    d = resp.json(); cap["obj"] = d.get("data") if isinstance(d, dict) else None
+                except Exception:  # noqa: BLE001
+                    pass
+        ctx.on("response", on_resp)
+        pg.goto(page_url, wait_until="networkidle", timeout=30000); pg.wait_for_timeout(wait_ms)
+        for a in (actions or []):
+            try:
+                if "click" in a:
+                    pg.locator(a["click"]["selector"]).first.click(timeout=4000)
+                elif "wait_ms" in a:
+                    pg.wait_for_timeout(int(a["wait_ms"]))
+                pg.wait_for_timeout(1500)
+            except Exception:  # noqa: BLE001
+                pass
+        pg.wait_for_timeout(1200)
+        det = pg.evaluate(_DETAIL_JS)
+        ctx.close(); b.close()
+    obj = cap["obj"] if isinstance(cap["obj"], dict) else {}
+    ex = build_detail_extract(det.get("pairs", []), obj, label_sel=det.get("label_sel", ""),
+                              content_sel=det.get("content_sel", ""), api_rows_path=api_rows_path)
+    return {"extract": ex, "api_obj": obj, "pairs": det.get("pairs", [])}
+
+
 def _scope_selector(wrapper: str) -> str:
     """从数据表 wrapper 的 class 列表里挑一个最能定位表体的类,拼成收窄选择器。
     通用:优先含 'table-body' 的类,否则第一个含 'table' 的类;都没有则退回全表。"""

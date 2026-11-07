@@ -72,7 +72,18 @@ def main():
     assert ex2["dom_to_api"] == {"编号": "code", "名称": "nm"}, ex2
     print("    ✓ 表头/表体分表:表头取 header 表、数据取 body 表,仍能出列+绑字段")
 
-    print("\n全部通过 ✅  —— 表格结构探测就位:给页面自动产 UI 断言选择器,免手工扒")
+    # 详情面板:标签-值对 + 接口单对象 → fields 抽取 + 按值绑定
+    from core.discovery.page_probe import build_detail_extract
+    pairs = [{"label": "名称", "value": "鼠标"}, {"label": "状态", "value": "DONE"}, {"label": "备注", "value": "-"}]
+    api_obj = {"nm": "鼠标", "st": "DONE", "note": ""}
+    dex = build_detail_extract(pairs, api_obj, label_sel=".d-item [class*=label]",
+                               content_sel=".d-item [class*=content]", api_rows_path="data")
+    assert dex["extract"]["fields"]["label"] == ".d-item [class*=label]", dex
+    assert dex["dom_to_api"] == {"名称": "nm", "状态": "st"}, dex
+    assert dex["_matched"] == 2, dex
+    print(f"    ✓ 详情面板:标签-值自动绑接口字段(占位符'-'跳过): {dex['dom_to_api']}")
+
+    print("\n全部通过 ✅  —— 表格+详情结构探测就位:给页面自动产 UI 断言选择器,免手工扒")
 
 
 if __name__ == "__main__":
