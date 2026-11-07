@@ -12,7 +12,7 @@ DEFAULT_UI = {
     "control": "input, textarea, select, [role=combobox]",
     "form_item": '[class*="form-item"],[class*="form_item"],.form-item',
     "label": '[class*="label"],label',
-    "error": '[class*="error"],[class*="form-item__error"]',
+    "error": '[class*="error"],[class*="form-item__error"],[class*="form-item__message"],[class*="form-message"],[class*="field__message"]',
 }
 
 _DISCOVER_JS = r"""
