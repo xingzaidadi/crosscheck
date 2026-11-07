@@ -192,8 +192,33 @@ def _build_body(cfg: dict) -> dict:
     for mf in (cfg.get("marker_fields") or []):
         body[mf] = "{{marker}}"
     for k, v in (cfg.get("body_set") or {}).items():
-        body[k] = v
+        _set_path(body, k, v)
     return body
+
+
+def _set_path(obj, dotted: str, value) -> None:
+    """按点路径写值:支持嵌套与列表下标,如 'itemList.0.quantity'。中间缺省自动建 dict。
+    纯通用工具(覆盖任意层字段,写入类造数常用),零业务。"""
+    parts = dotted.split(".")
+    cur = obj
+    for i, p in enumerate(parts):
+        last = i == len(parts) - 1
+        idx = int(p) if p.lstrip("-").isdigit() else None
+        if idx is not None and isinstance(cur, list):
+            while len(cur) <= idx:
+                cur.append({})
+            if last:
+                cur[idx] = value
+            else:
+                cur = cur[idx]
+        else:
+            if last:
+                cur[p] = value
+            else:
+                if p not in cur or not isinstance(cur[p], (dict, list)):
+                    nxt = parts[i + 1]
+                    cur[p] = [] if nxt.lstrip("-").isdigit() else {}
+                cur = cur[p]
 
 
 def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=None) -> None:
@@ -268,7 +293,11 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
         st = w.get("assert_status") or {}
         if st.get("column"):
             asrt["fields"] = {st["column"]: st.get("value")}
-        spec.assertions = {"db": [asrt]}
+        db_asserts = [asrt]
+        # 额外库断言(可断任意表/字段,如子表服务端重算值);where 支持 {{AUTOTEST_标记值}}/{{draftCode}} 占位
+        for extra in (w.get("extra_db_asserts") or []):
+            db_asserts.append(dict(extra))
+        spec.assertions = {"db": db_asserts}
     # 清理:子表按父单号删 + 主表按标记删
     cleanup = [{"table": c, "key": pkey,
                 "parent": {"table": table, "key_col": pkey, "marker_col": pmcol}}
