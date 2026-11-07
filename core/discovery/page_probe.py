@@ -97,6 +97,84 @@ def _headers_for(tables: list[dict], data_idx: int) -> list[str]:
     return tables[data_idx].get("headers") or []
 
 
+_DUMP_JS = """()=>Array.from(document.querySelectorAll('table')).map(t=>{
+  const wrap=t.closest('[class*=table]');
+  return {
+    wrapper:(wrap?wrap.className:''),
+    headers:Array.from(t.querySelectorAll('thead th')).map(x=>x.innerText.trim()),
+    row0:Array.from(t.querySelectorAll('tbody tr:first-child td')).map(x=>x.innerText.trim()),
+    rows:t.querySelectorAll('tbody tr').length
+  };
+})"""
+
+
+def probe_page_extract(page_url: str, *, session_file: str | None = None,
+                       api_pattern: str = "", actions: list | None = None,
+                       api_rows_path: str = "data.records", wait_ms: int = 3500,
+                       headless: bool = True) -> dict:
+    """实开页面:做触发动作 → 抓接口响应 → dump 所有表结构 → build_extract。
+    actions: [{click:{selector}}|{goto:url}|{wait_ms:ms}] 轻量触发序列。
+    返回 {extract, api_rows, tables, api_total}。零业务:哪个页面/接口由调用方给。"""
+    from playwright.sync_api import sync_playwright
+
+    cap = {"rows": None, "total": None}
+
+    def _rows_from(d):
+        node = d
+        for part in api_rows_path.split("."):
+            node = node.get(part) if isinstance(node, dict) else None
+            if node is None:
+                break
+        if isinstance(node, list):
+            return node
+        data = d.get("data") if isinstance(d, dict) else None
+        if isinstance(data, dict):
+            for v in data.values():
+                if isinstance(v, list):
+                    return v
+        return []
+
+    with sync_playwright() as p:
+        b = p.chromium.launch(headless=headless)
+        kw = {"viewport": {"width": 1600, "height": 900}}
+        if session_file:
+            kw["storage_state"] = session_file
+        ctx = b.new_context(**kw)
+        pg = ctx.new_page()
+
+        def on_resp(resp):
+            if api_pattern and api_pattern in resp.url and cap["rows"] is None:
+                try:
+                    d = resp.json()
+                    cap["rows"] = _rows_from(d)
+                    data = d.get("data") if isinstance(d, dict) else {}
+                    cap["total"] = data.get("total") if isinstance(data, dict) else None
+                except Exception:  # noqa: BLE001
+                    pass
+        ctx.on("response", on_resp)
+
+        pg.goto(page_url, wait_until="networkidle", timeout=30000)
+        pg.wait_for_timeout(wait_ms)
+        for a in (actions or []):
+            try:
+                if "click" in a:
+                    pg.locator(a["click"]["selector"]).first.click(timeout=4000)
+                elif "goto" in a:
+                    pg.goto(a["goto"], wait_until="networkidle", timeout=20000)
+                elif "wait_ms" in a:
+                    pg.wait_for_timeout(int(a["wait_ms"]))
+                pg.wait_for_timeout(1500)
+            except Exception:  # noqa: BLE001
+                pass
+        pg.wait_for_timeout(1200)
+        tables = pg.evaluate(_DUMP_JS)
+        ctx.close()
+        b.close()
+
+    extract = build_extract(tables, cap["rows"] or [], api_rows_path=api_rows_path)
+    return {"extract": extract, "api_rows": cap["rows"] or [], "tables": tables, "api_total": cap["total"]}
+
+
 def _scope_selector(wrapper: str) -> str:
     """从数据表 wrapper 的 class 列表里挑一个最能定位表体的类,拼成收窄选择器。
     通用:优先含 'table-body' 的类,否则第一个含 'table' 的类;都没有则退回全表。"""
