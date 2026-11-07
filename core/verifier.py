@@ -115,6 +115,9 @@ class Verifier:
             if a.row_count is not None and len(rows) != a.row_count:
                 ok = False
                 details.append(f"[{a.table}] 行数: 预期 {a.row_count} vs 实际 {len(rows)} (where: {where})")
+            if a.row_count_min is not None and len(rows) < a.row_count_min:
+                ok = False
+                details.append(f"[{a.table}] 行数: 预期 ≥{a.row_count_min} vs 实际 {len(rows)} (where: {where})")
             for col, expected in (a.fields or {}).items():
                 bad = [r for r in rows if not _eq(r.get(col), expected)]
                 if bad:

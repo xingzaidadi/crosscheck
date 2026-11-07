@@ -37,7 +37,8 @@ def spec_to_testcase(spec) -> TestCase:
     """ExecSpec → 内核契约 TestCase(断言/allowed_tables 落 Expected,写执行要素挂 raw)。"""
     db_asserts = [
         DbAssertion(db=a.get("db", ""), table=a["table"], where=a["where"],
-                    row_count=a.get("row_count"), fields=a.get("fields") or {})
+                    row_count=a.get("row_count"), row_count_min=a.get("row_count_min"),
+                    fields=a.get("fields") or {})
         for a in (spec.assertions.get("db") or [])
     ]
     expected = Expected(
@@ -75,7 +76,8 @@ def _db_assert_layer(case: TestCase, db: DbClient, marker: str, vars: dict | Non
             ok_all = False
             rows.append([a.table, where, a.row_count, f"查询失败:{e}", "—", "—", "—", "✗"])
             continue
-        cnt_ok = a.row_count is None or len(got_rows) == a.row_count
+        cnt_ok = (a.row_count is None or len(got_rows) == a.row_count) and \
+                 (a.row_count_min is None or len(got_rows) >= a.row_count_min)
         if not cnt_ok:
             ok_all = False
         if a.fields:

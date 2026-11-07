@@ -21,6 +21,7 @@ class DbAssertion:
     table: str
     where: str
     row_count: int | None = None
+    row_count_min: int | None = None   # "至少 N 行"(追加/事件表,行数依配置而定,不宜断精确值)
     fields: dict[str, Any] = field(default_factory=dict)
 
 
