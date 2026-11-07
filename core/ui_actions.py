@@ -7,6 +7,7 @@ page_model(存 workspace/knowledge_base/page_model/<feature>.json):一串语义�
   [{action, label, value, ...}]:
     text|number|textarea : {action, label, value}         标签定位 input/textarea → fill
     select               : {action, label, value}         原生 select 或自定义下拉(点开选项)
+    search_select        : {action, label, value?, index?} 搜索型选择器(弹层搜索框+选项,hi-v5 等)
     cascader             : {action, label, path:[l1,l2..]} 级联:点开 → 逐级点选项文本
     date                 : {action, label, value}          直接填 input,失败则点开选当天格
     grid_cell            : {action, column, value, row:0}   可编辑表格:按表头文本定位列、行号定位行 → 激活编辑 → 填
@@ -45,6 +46,46 @@ def _select(page, label, value, ui) -> None:
     it.click(timeout=3000)                    # 自定义下拉:点开
     page.wait_for_timeout(250)
     page.get_by_text(str(value), exact=True).first.click(timeout=3000)
+
+
+def _search_select(page, a, ui) -> None:
+    """搜索型选择器(hi-v5-picker/fn-search-select 等:点开→弹层搜索框→选项列表→点选)。
+    通用:选项挂 body 级弹层(非 form-item 内),选项文本常多行('名称\\n编码'),原生 _select 的
+    exact 文本匹配够不着。这里:按 label/placeholder 定位触发点→点开→(可选)搜索框输入过滤→
+    点第 index 个(或含 value 文本的)选项→等联动。
+    a: {label, value?(搜索/匹配文本), index?(默认0)}。"""
+    label = a.get("label", "")
+    value = a.get("value")
+    idx = int(a.get("index", 0) or 0)
+    # 定位触发点:优先 placeholder 含 label,退回 form-item 内的 picker/select 容器
+    trig = page.locator(f'[placeholder*="{label}"]')
+    if not trig.count():
+        trig = _item(page, label, ui).locator('[class*="picker"],[class*="select"],input').first
+    else:
+        trig = trig.first
+    trig.click(timeout=4000)
+    page.wait_for_timeout(600)
+    # 可见弹层(hi-v5 弹层挂 body);取最后一个可见的下拉/picker 弹层
+    popper = page.locator(
+        '[class*="picker__popper"]:visible, [class*="select__dropdown"]:visible, '
+        '.fn-search-select-overlay:visible, [class*="popper"]:visible').last
+    # 有搜索框且给了 value → 过滤
+    if value:
+        si = popper.locator('input:visible').first
+        if si.count():
+            si.fill(str(value), timeout=3000)
+            page.wait_for_timeout(900)
+    # 选项:弹层内 option/item/li;给了 value 优先按文本点,否则点第 idx 个
+    picked = False
+    if value:
+        cand = popper.get_by_text(str(value)).first
+        if cand.count():
+            cand.click(timeout=4000)
+            picked = True
+    if not picked:
+        opts = popper.locator('[class*="option"]:visible, [class*="item"]:visible, li:visible')
+        opts.nth(idx).click(timeout=4000)
+    page.wait_for_timeout(800)   # 等联动带出
 
 
 def _cascader(page, label, path, ui) -> None:
@@ -115,6 +156,8 @@ def replay(page, actions: list[dict], ui: dict | None = None, llm_resolver=None)
                 strat = _text(page, a["label"], a.get("value", ""), ui, llm_resolver)
             elif act == "select":
                 _select(page, a["label"], a.get("value", ""), ui)
+            elif act == "search_select":
+                _search_select(page, a, ui)
             elif act == "cascader":
                 _cascader(page, a["label"], a.get("path") or [], ui)
             elif act == "date":

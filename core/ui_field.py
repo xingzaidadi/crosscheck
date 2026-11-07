@@ -4,7 +4,8 @@ UI 字段状态断言(通用):验"某字段被联动带出成期望值"+"字段�
 只能在页面上验:取该标签对应控件的当前值 + 可编辑态,与预期比。配合 ui_actions 回放用。
 
 field_asserts(spec.ui.field_asserts):
-  [{label: 字段标签, equals?: 期望值(含即算命中), readonly?: true/false 期望只读态}]
+  [{label: 字段标签, equals?: 期望值(含即算命中), nonempty?: true 只断非空(值依触发项而定),
+    readonly?: true/false 期望只读态}]
 """
 from __future__ import annotations
 
@@ -14,12 +15,15 @@ _FIELD_STATE_JS = r"""
 (args) => {
   const {label, ui} = args;
   const items = Array.from(document.querySelectorAll(ui.form_item));
-  let item = null;
+  // 先精确匹配 label,无则前缀匹配(只读带出字段常把 '标签 值' 并在一个元素里,如 'Label Value')
+  let item = null, exact = null, prefix = null;
   for (const it of items) {
     const lab = it.querySelector(ui.label);
     const t = lab ? (lab.innerText||'').replace(/[*＊]/g,'').trim() : '';
-    if (t === label) { item = it; break; }
+    if (t === label) { exact = it; break; }
+    if (prefix === null && t.indexOf(label) === 0) prefix = it;   // t 以 label 开头
   }
+  item = exact || prefix;
   if (!item) return {found:false};
   const ctrl = item.querySelector('input,textarea,select');
   if (ctrl) {
@@ -28,11 +32,12 @@ _FIELD_STATE_JS = r"""
     const editable = !(ctrl.disabled || ctrl.readOnly || ctrl.getAttribute('aria-disabled') === 'true');
     return {found:true, value:(val||'').trim(), editable:editable};
   }
-  // 无输入控件 = 只读展示:取 item 内除 label 外的文本当值
-  const labtxt = (item.querySelector(ui.label)||{}).innerText || '';
-  let txt = (item.innerText||'').trim();
-  if (labtxt) txt = txt.replace(labtxt, '').trim();
-  return {found:true, value:txt, editable:false};
+  // 无输入控件 = 只读展示:取整项文本去掉开头的 label 词(label 与值可能并在同一元素)
+  let full = (item.innerText||'').replace(/[*＊]/g,'').trim();
+  let val = full;
+  if (val.indexOf(label) === 0) val = val.slice(label.length).trim();
+  else { const labtxt=(item.querySelector(ui.label)||{}).innerText||''; if(labtxt) val=full.replace(labtxt,'').trim(); }
+  return {found:true, value:val, editable:false};
 }
 """
 
@@ -56,6 +61,9 @@ def check_fields(page, asserts: list[dict], ui: dict | None = None) -> tuple[boo
             exp = str(a["equals"])
             if not (exp == val or exp in val):
                 ok = False
+        if a.get("nonempty"):   # 联动带出:只断"非空"(具体值依触发项而定,不预知)
+            if not (val or "").strip():
+                ok = False
         ro_exp = "—"
         ro_act = "是" if not editable else "否"
         if "readonly" in a:
@@ -63,6 +71,7 @@ def check_fields(page, asserts: list[dict], ui: dict | None = None) -> tuple[boo
             if bool(a["readonly"]) != (not editable):
                 ok = False
         ok_all = ok_all and ok
-        rows.append([label, a.get("equals", "—"), val, ro_exp, ro_act, "✓" if ok else "✗"])
+        exp_disp = a.get("equals", "非空" if a.get("nonempty") else "—")
+        rows.append([label, exp_disp, val, ro_exp, ro_act, "✓" if ok else "✗"])
     return ok_all, {"name": "UI 字段联动/只读校验", "ok": ok_all,
                     "expected": "联动字段带出期望值且只读态符合预期", "cols": cols, "rows": rows}
