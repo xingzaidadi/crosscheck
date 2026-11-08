@@ -181,8 +181,13 @@ def _discover_complete(body: dict, table: str, db, feature: str, marker: str) ->
 def _build_body(cfg: dict) -> dict:
     """从抓包模板拼请求体:去服务端字段、marker 注占位、item 去自增、body_set 覆盖特定字段。
     cfg: {template, drop_fields, item_key, item_drop, marker_fields, body_set}。
-    body_set 可放 {{draftCode}} 之类占位,执行期由前置造数抓到的 vars 填入。"""
-    tpl = json.loads(Path(cfg["template"]).read_text(encoding="utf-8"))
+    body_set 可放 {{draftCode}} 之类占位,执行期由前置造数抓到的 vars 填入。
+    inline_body(可选):直接给报文(来自 actionmap 录制的动作桩),省去外部 template 文件。"""
+    import copy
+    if cfg.get("inline_body") is not None:
+        tpl = copy.deepcopy(cfg["inline_body"])
+    else:
+        tpl = json.loads(Path(cfg["template"]).read_text(encoding="utf-8"))
     drop = set(cfg.get("drop_fields") or [])
     item_key = cfg.get("item_key")
     item_drop = set(cfg.get("item_drop") or [])
@@ -239,12 +244,15 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
     w = route.get("write") or {}
     endpoint = w.get("endpoint") or {}
     tpl_path = w.get("template")
-    if not endpoint.get("url") or not tpl_path or not Path(tpl_path).exists():
-        spec.needs_review = [f"写入类『{feature}』缺 write.endpoint 或 write.template(抓包模板),补 route 后可自动建模"]
+    inline = w.get("inline_body")   # actionmap 录制的动作桩报文,替代外部 template 文件
+    has_tpl = bool(tpl_path and Path(tpl_path).exists())
+    if not endpoint.get("url") or not (has_tpl or inline is not None):
+        spec.needs_review = [f"写入类『{feature}』缺 write.endpoint 或 write.template/inline_body,补 route 后可自动建模"]
         return
 
-    # 标记字段:显式配的 + 模板里名称/标题类字段(自动认出,造数标记放这里)
-    tpl_keys = list(json.loads(Path(tpl_path).read_text(encoding="utf-8")).keys())
+    # 标记字段:显式配的 + 报文里名称/标题类字段(自动认出,造数标记放这里)
+    tpl_keys = list(json.loads(Path(tpl_path).read_text(encoding="utf-8")).keys()) if has_tpl \
+        else (list(inline.keys()) if isinstance(inline, dict) else [])
     marker_fields = list(w.get("marker_fields") or [])
     marker_fields += [k for k in tpl_keys if _is_name_key(k) and k not in marker_fields]
 
@@ -262,7 +270,8 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
                       "body": _build_body(cfg), "capture": dp.get("capture") or {}})
     spec.data_prep = preps
 
-    body = _build_body({"template": tpl_path, "drop_fields": w.get("drop_fields"),
+    body = _build_body({"template": tpl_path, "inline_body": inline,
+                        "drop_fields": w.get("drop_fields"),
                         "item_key": w.get("item_key"), "item_drop": w.get("item_drop"),
                         "marker_fields": marker_fields, "body_set": w.get("body_set")})
 
