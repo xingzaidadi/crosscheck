@@ -1,18 +1,21 @@
-"""
-用例接入层:把固定列格式的 Excel 用例读成 RawCase(散文原样,不做语义解析)。
+"""用例接入层:把各种格式的用例文件读成 RawCase(散文原样,不做语义解析)。
 
-用例是业务数据,通常放 <workspace>/cases/*.xlsx。本模块只负责"读进来",
-把散文建模成可执行规格(ExecSpec)是 core/spec.py 的事。
+用例是业务数据,通常放 <workspace>/cases/。本模块只负责"读进来";建模成可执行规格
+(ExecSpec)是 core/spec.py 的事。
 
-固定列格式(按表头名匹配,缺列容错;列顺序无所谓):
-  用例名称 | 用例等级 | 所属模块 | 标签 | 前置条件 | 备注 | 步骤描述 | 预期结果 | 编辑模式 | 责任人(名称) | 责任人(ID)
+格式可插拔(按扩展名分发,表头/键按名匹配,缺列容错,顺序无所谓):
+  .xlsx/.xlsm —— 表头行 + 数据行
+  .csv        —— 表头行 + 数据行
+  .json       —— 对象数组,键用 RawCase 字段名或同义表头
+列名/键名既认 RawCase 字段名(name/steps_text…),也认中文表头(用例名称/步骤描述…)。
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields as _dc_fields
 from pathlib import Path
+from typing import Any, Callable
 
-# 表头名 → RawCase 字段。表头两侧空白会被 strip。
+# 中文表头 → RawCase 字段(两侧空白 strip)
 COLUMN_MAP = {
     "用例名称": "name",
     "用例等级": "level",
@@ -41,7 +44,7 @@ class RawCase:
     edit_mode: str = ""
     owner_name: str = ""
     owner_id: str = ""
-    row: int = 0            # Excel 行号,便于回溯
+    row: int = 0            # 源文件行号/序号,便于回溯
 
     @property
     def case_id(self) -> str:
@@ -56,43 +59,109 @@ class RawCase:
         return "/".join(parts[-2:]) if parts else ""
 
 
-def read_cases(path: str | Path, sheet: str | None = None) -> list[RawCase]:
-    """读 Excel → RawCase 列表。第一行为表头,按 COLUMN_MAP 建列索引。"""
-    import openpyxl
+_FIELDS = {f.name for f in _dc_fields(RawCase)}
 
+
+def _norm_key(h: Any) -> str | None:
+    """表头/键 → RawCase 字段名:既认中文表头,也认字段名本身;认不出返回 None。"""
+    if h is None:
+        return None
+    k = str(h).strip()
+    if k in COLUMN_MAP:
+        return COLUMN_MAP[k]
+    if k in _FIELDS:
+        return k
+    return None
+
+
+def _case_from_dict(d: dict, row: int) -> RawCase | None:
+    """{RawCase字段: 值} → RawCase(name 必填);非字段键已在上游过滤。"""
+    name = str(d.get("name", "") or "").strip()
+    if not name:
+        return None
+    vals = {k: (str(v).strip() if v is not None else "") for k, v in d.items() if k in _FIELDS and k != "row"}
+    vals["name"] = name
+    vals["row"] = row
+    return RawCase(**vals)
+
+
+def _read_xlsx(path: str | Path, sheet: str | None = None) -> list[RawCase]:
+    import openpyxl
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
     ws = wb[sheet] if sheet else wb.worksheets[0]
-
     rows = ws.iter_rows(values_only=True)
     header = next(rows, None)
     if not header:
+        wb.close()
         return []
-
-    idx: dict[str, int] = {}
+    idx = {}
     for i, h in enumerate(header):
-        key = COLUMN_MAP.get(str(h).strip()) if h is not None else None
+        key = _norm_key(h)
         if key:
             idx[key] = i
     if "name" not in idx:
-        raise ValueError(f"Excel 缺必需列 '用例名称';实际表头={list(header)}")
-
-    def cell(row: tuple, key: str) -> str:
-        i = idx.get(key)
-        if i is None or i >= len(row) or row[i] is None:
-            return ""
-        return str(row[i]).strip()
-
-    cases: list[RawCase] = []
+        wb.close()
+        raise ValueError(f"用例文件缺必需列 '用例名称'/name;实际表头={list(header)}")
+    out = []
     for rn, row in enumerate(rows, start=2):
-        name = cell(row, "name")
-        if not name:
-            continue
-        cases.append(RawCase(
-            name=name, level=cell(row, "level"), module=cell(row, "module"),
-            tags=cell(row, "tags"), preconditions=cell(row, "preconditions"),
-            notes=cell(row, "notes"), steps_text=cell(row, "steps_text"),
-            expected_text=cell(row, "expected_text"), edit_mode=cell(row, "edit_mode"),
-            owner_name=cell(row, "owner_name"), owner_id=cell(row, "owner_id"), row=rn,
-        ))
+        d = {k: (row[i] if i < len(row) else None) for k, i in idx.items()}
+        c = _case_from_dict(d, rn)
+        if c:
+            out.append(c)
     wb.close()
-    return cases
+    return out
+
+
+def _read_csv(path: str | Path, sheet: str | None = None) -> list[RawCase]:
+    import csv
+    out = []
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        reader = csv.reader(f)
+        header = next(reader, None)
+        if not header:
+            return []
+        idx = {}
+        for i, h in enumerate(header):
+            key = _norm_key(h)
+            if key:
+                idx[key] = i
+        if "name" not in idx:
+            raise ValueError(f"CSV 缺必需列 '用例名称'/name;实际表头={header}")
+        for rn, row in enumerate(reader, start=2):
+            d = {k: (row[i] if i < len(row) else None) for k, i in idx.items()}
+            c = _case_from_dict(d, rn)
+            if c:
+                out.append(c)
+    return out
+
+
+def _read_json(path: str | Path, sheet: str | None = None) -> list[RawCase]:
+    import json
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(data, dict):
+        data = data.get("cases") or data.get("data") or []
+    out = []
+    for rn, item in enumerate(data or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        d = {}
+        for k, v in item.items():
+            nk = _norm_key(k)
+            if nk:
+                d[nk] = v
+        c = _case_from_dict(d, rn)
+        if c:
+            out.append(c)
+    return out
+
+
+READERS: dict[str, Callable[..., list[RawCase]]] = {
+    ".xlsx": _read_xlsx, ".xlsm": _read_xlsx, ".xltx": _read_xlsx,
+    ".csv": _read_csv, ".json": _read_json,
+}
+
+
+def read_cases(path: str | Path, sheet: str | None = None) -> list[RawCase]:
+    """按扩展名分发读用例 → RawCase 列表。未知扩展名按 Excel 尝试(向后兼容)。"""
+    reader = READERS.get(Path(path).suffix.lower(), _read_xlsx)
+    return reader(path, sheet)
