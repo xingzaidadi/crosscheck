@@ -169,13 +169,15 @@ def _credential_login(profile: Profile, creds: dict | None, session_file: str,
 
 
 def ensure_session(profile: Profile, creds: dict | None = None, *,
-                   force: bool = False, check: bool = True) -> str:
+                   force: bool = False, check: bool = True,
+                   session_file: str | None = None) -> str:
     """
     确保有可用登录态,返回 session 文件路径。
       - 已有且存活 → 直接复用;
       - force 或已失效 → 按 mode 重登(A 人工 / B 声明式);
+    session_file 可指定(多角色:每角色一份登录态);默认用 profile.session_file。
     """
-    session_file = profile.session_file
+    session_file = session_file or profile.session_file
     if not force and Path(session_file).exists():
         if not check or _check_live(profile, session_file):
             print(f"  复用已有登录态: {session_file}")
