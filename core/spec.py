@@ -18,9 +18,34 @@ from typing import Any
 import yaml
 
 # 分类关键词(命中步骤/用例名即归类)。写优先于查(既写又查按写处理,更保守)。
-_WRITE_KW = re.compile(
-    r"新建|提交|暂存|创建|保存|受理|审批|撤回|驳回|编辑|修改|删除|作废|退回|关闭|转办|发起|批量|造数|初始化")
+# core 只放通用 CRUD 动词(软件普适,非业务);各项目的领域流转动词由
+# workspace/config/classify_keywords.txt 补(零业务:core 不认识任何领域词)。
+_GENERIC_WRITE = "新建|创建|提交|暂存|保存|编辑|修改|更新|删除|作废|初始化|造数"
 _QUERY_KW = re.compile(r"查询|列表|检索|查看|详情|筛选|搜索|分页|导出|融合|聚合")
+_write_kw_cache = None
+
+
+def _write_kw():
+    """写类关键词正则:通用 CRUD + workspace 补充的领域动词(首次调用时装配并缓存)。"""
+    global _write_kw_cache
+    if _write_kw_cache is None:
+        extra = ""
+        try:
+            from core.workspace import config_dir
+            p = config_dir() / "classify_keywords.txt"
+            if p.exists():
+                terms = []
+                for line in p.read_text(encoding="utf-8").splitlines():  # 先按行剔注释,再拆 |(避免注释里的 | 污染)
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    terms += [t.strip() for t in line.split("|") if t.strip()]
+                if terms:
+                    extra = "|" + "|".join(terms)
+        except Exception:  # noqa: BLE001  读不到就只用通用集
+            pass
+        _write_kw_cache = re.compile(_GENERIC_WRITE + extra)
+    return _write_kw_cache
 # 接口路径:形如 /svc/api/order/create(至少两段且含 api)
 _ENDPOINT = re.compile(r"/[A-Za-z0-9_\-]+(?:/[A-Za-z0-9_\-{}]+)+")
 
@@ -55,6 +80,7 @@ class ExecSpec:
     base_url: str = ""                                        # 接口基址(默认取 profile.base_url)
     session: str = ""                                         # 登录态 storageState 文件(复用 cookie 鉴权)
     request: dict[str, Any] = field(default_factory=dict)     # 主写动作 {method,url,body,headers}
+    code_path: str = ""                                       # 响应里"单据号"的点路径(幂等/全字段对账默认取它);空→执行期退通用 data.code
     marker_field: str = ""                                    # body 里放唯一标记的字段名(造数可识别/可清理)
     approve: dict[str, Any] = field(default_factory=dict)     # 一键审批请求(可选,同 request 结构)
     verify_poll: dict[str, Any] = field(default_factory=dict)  # 异步验库等待 {timeout_s, interval_s};空=只查一次
@@ -82,7 +108,7 @@ def _extract_endpoints(text: str) -> list[str]:
 def from_raw(raw) -> ExecSpec:
     """确定性草拟:分类 + 抽接口 + 填元数据;断言留空标 _needs_review,待人审/LLM 补。"""
     blob = f"{raw.name}\n{raw.steps_text}\n{raw.expected_text}"
-    if _WRITE_KW.search(blob):
+    if _write_kw().search(blob):
         kind, mode = "write", "api"
     elif _QUERY_KW.search(blob):
         kind, mode = "query", "reconcile"

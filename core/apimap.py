@@ -3,7 +3,7 @@
 method+path 目录,作为建模时"调哪个接口"的知识库——减少临场问人。
 
 来源:captures/*_picked.json、runs/*/cases/*/api_request.json、knowledge_base/sitemap/*.json。
-注:**动作类接口(驳回/受理/关闭)只有被执行过才会出现在流量里**;要补齐需一次"演练/录制",
+注:**动作类接口(需点按钮才触发的写动作)只有被执行过才会出现在流量里**;要补齐需一次"演练/录制",
 库里是没有接口信息的——这是接口侧前置探索的诚实边界。
 """
 from __future__ import annotations
@@ -51,7 +51,7 @@ def aggregate(captures_dir: Path, runs_dir: Path, sitemap_dir: Path) -> dict:
     return cat
 
 
-def build(db_name: str = "ebuy-demand") -> Path:
+def build(db_name: str = "default") -> Path:
     from core.workspace import captures_dir, workspace_root, kb_dir
     cat = aggregate(captures_dir(), workspace_root() / "runs", kb_dir() / "sitemap")
     out = kb_dir() / "api_catalog" / f"{db_name}.json"

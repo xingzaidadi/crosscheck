@@ -105,6 +105,7 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
     verifier = Verifier(db)
     cleaner = Cleaner(db, registry_path)
     req = case.raw.get("request") or {}
+    code_path = getattr(spec, "code_path", "") or "data.code"   # 单据号路径:route 配(业务),core 退通用默认
 
     verdict, details = Verdict.PASS, []
     did, layers, bk, action, ar = [], [], None, None, None
@@ -144,7 +145,7 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
         action = adapter.perform(case, marker, vars)
         did.append(f"执行写动作 {req.get('method')} {req.get('url')}(唯一标记 {marker})")
         code = _dig(action.api_body, "code")
-        doc_no = _dig(action.api_body, "data.demandRequestCode")
+        doc_no = _dig(action.api_body, code_path)
         layers.append({
             "name": "提交接口", "ok": bool(action.ok),
             "expected": "HTTP<400 且业务 code=0,生成单据",
@@ -202,7 +203,7 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
         if idem:
             from core import invariants as _inv
             r2 = adapter.call(req, vars)
-            path = idem.get("code_from", "data.demandRequestCode")
+            path = idem.get("code_from", code_path)
             id1, id2 = _dig(action.api_body, path), _dig(r2.api_body, path)
             iok = _inv.idempotent_ok(id1, id2)
             layers.append({"name": "幂等不变量", "ok": iok,
@@ -229,7 +230,7 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
         rt = case.raw.get("roundtrip") or {}
         if rt and rt.get("detail") and action is not None:
             from core import roundtrip as _rt
-            code = _dig(action.api_body, rt.get("code_from", "data.demandRequestCode"))
+            code = _dig(action.api_body, rt.get("code_from", code_path))
             if code is _MISSING:
                 details.append("全字段对账:未取到单号(检查 code_from)")
             else:

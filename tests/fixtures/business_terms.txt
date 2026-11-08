@@ -1,0 +1,13 @@
+# 禁止出现在 core/ 的业务词(本项目特定)。换业务只改这份清单。
+# 一行一个;# 开头为注释。命中即判 core 被业务污染。
+migou
+ebuy
+p2p
+demandRequest
+受理
+采购
+需求
+TO_ACCEPT
+TO_PRICE
+lijie
+bpmBusinessKey

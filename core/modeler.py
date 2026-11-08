@@ -66,6 +66,7 @@ def _fill_reconcile(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path)
     spec.db = route.get("db", "") or spec.db
     spec.base_url = route.get("base_url", "") or spec.base_url
     spec.session = route.get("session", "") or spec.session
+    spec.code_path = route.get("code_path", "") or spec.code_path
 
     mapping_path = kb_root / "query_mapping" / f"{feature}.json"
     sample_path = caps_root / f"{feature}_picked.json"
@@ -233,6 +234,7 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
     spec.db = route.get("db", "") or spec.db
     spec.base_url = route.get("base_url", "") or spec.base_url
     spec.session = route.get("session", "") or spec.session
+    spec.code_path = route.get("code_path", "") or spec.code_path
 
     w = route.get("write") or {}
     endpoint = w.get("endpoint") or {}
