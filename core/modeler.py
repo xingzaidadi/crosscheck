@@ -246,8 +246,10 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
     tpl_path = w.get("template")
     inline = w.get("inline_body")   # actionmap 录制的动作桩报文,替代外部 template 文件
     has_tpl = bool(tpl_path and Path(tpl_path).exists())
-    if not endpoint.get("url") or not (has_tpl or inline is not None):
-        spec.needs_review = [f"写入类『{feature}』缺 write.endpoint 或 write.template/inline_body,补 route 后可自动建模"]
+    explicit_req = w.get("request")  # 动作类(转办/退回等):主动作体直接给,不走提交模板
+    main_url = endpoint.get("url") or (explicit_req or {}).get("url")
+    if not main_url or not (has_tpl or inline is not None or explicit_req is not None):
+        spec.needs_review = [f"写入类『{feature}』缺 write.endpoint/request 或 write.template/inline_body,补 route 后可自动建模"]
         return
 
     # 标记字段:显式配的 + 报文里名称/标题类字段(自动认出,造数标记放这里)
@@ -258,16 +260,22 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
 
     # 前置造数:每个 data_prep 项(默认沿用主模板,可各自覆盖 template/body_set)拼出请求体 +
     # capture(抓单号/版本进 vars,供主动作/断言用 {{var}} 引用)。状态守卫/流转/编辑类的前提。
+    # 直通控制键(库步骤/独立鉴权/显式体),外加:有 url 无显式 body 时默认按提交模板拼(保持既有行为)。
+    # 由此"提交→审批(BPM 独立 session)→等状态翻转(db_wait)→查库拿键(db_capture)→动作"整条流水线可纯配置表达。
     preps = []
     for dp in (w.get("data_prep") or []):
-        cfg = {"template": dp.get("template", tpl_path),
-               "drop_fields": dp.get("drop_fields", w.get("drop_fields")),
-               "item_key": dp.get("item_key", w.get("item_key")),
-               "item_drop": dp.get("item_drop", w.get("item_drop")),
-               "marker_fields": dp.get("marker_fields", marker_fields),
-               "body_set": dp.get("body_set")}
-        preps.append({"method": dp.get("method", "POST"), "url": dp["url"],
-                      "body": _build_body(cfg), "capture": dp.get("capture") or {}})
+        step = {k: dp[k] for k in ("method", "url", "session", "base_url",
+                                   "db_wait", "db_capture", "capture") if k in dp}
+        if "body" in dp:
+            step["body"] = dp["body"]
+        elif dp.get("url"):
+            step["body"] = _build_body({"template": dp.get("template", tpl_path),
+                                        "drop_fields": dp.get("drop_fields", w.get("drop_fields")),
+                                        "item_key": dp.get("item_key", w.get("item_key")),
+                                        "item_drop": dp.get("item_drop", w.get("item_drop")),
+                                        "marker_fields": dp.get("marker_fields", marker_fields),
+                                        "body_set": dp.get("body_set")})
+        preps.append(step)
     spec.data_prep = preps
 
     body = _build_body({"template": tpl_path, "inline_body": inline,
@@ -284,7 +292,8 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
         own_db = db or _open_ro_db(spec.db)
         if own_db is not None:
             try:
-                filled = _discover_complete(body, table, own_db, feature, "AUTOTEST")
+                if not explicit_req:   # 动作类主体是自定义小报文,不按库约束补全提交字段
+                    filled = _discover_complete(body, table, own_db, feature, "AUTOTEST")
                 if children is None and pkey:
                     children = _derive_children(own_db, table, pkey)
             except Exception as e:  # noqa: BLE001  自发现失败不阻断(模板本身可用)
@@ -294,7 +303,8 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
                     own_db.close()
     children = children or []
 
-    spec.request = {"method": endpoint.get("method", "POST"), "url": endpoint["url"], "body": body}
+    spec.request = (dict(explicit_req) if explicit_req
+                    else {"method": endpoint.get("method", "POST"), "url": endpoint["url"], "body": body})
     spec.marker_field = ""
     if w.get("approve"):
         spec.approve = w["approve"]

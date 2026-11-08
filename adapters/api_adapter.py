@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from adapters.base import BaseAdapter
 from core.interfaces import ActionResult, TestCase
 
 _MARKER_PH = "{{AUTOTEST_标记值}}"
+_WHOLE_PH = re.compile(r"^\{\{([^{}]+)\}\}$")   # 整值占位:整串就是一个 {{key}}
 
 
 class ApiAdapter(BaseAdapter):
@@ -51,6 +53,9 @@ class ApiAdapter(BaseAdapter):
             subs.setdefault("AUTOTEST_标记值", subs["marker"])
         def walk(x):
             if isinstance(x, str):
+                m = _WHOLE_PH.match(x)
+                if m and m.group(1) in subs:
+                    return subs[m.group(1)]   # 整值占位 → 保留原类型(int/float/bool 不被字符串化)
                 for k, v in subs.items():
                     x = x.replace("{{" + k + "}}", str(v))
                 return x

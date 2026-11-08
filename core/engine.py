@@ -15,8 +15,76 @@ from core.cleaner import Cleaner
 from core.interfaces import CaseResult, DbAssertion, Expected, TestCase, Verdict
 from core.marker import make_marker
 from core.snapshot import SnapshotGuard
-from core.verifier import Verifier, _dig, _MISSING
+from core.verifier import Verifier, _dig, _eq, _MISSING
 from db.client import DbClient
+
+
+def _render_where(where: str, vars: dict) -> str:
+    """把 where 里的 {{AUTOTEST_标记值}}/{{var}} 换成当前 vars(业务配置,非外部输入)。"""
+    out = where.replace("{{AUTOTEST_标记值}}", str(vars.get("marker", "")))
+    for k, v in vars.items():
+        out = out.replace("{{" + k + "}}", str(v))
+    return out
+
+
+def _db_scalar(db: DbClient, table: str, column: str, where: str):
+    """查库取一个标量(column 可为表达式如 MAX(id)+999999);无行返回 None。"""
+    rows = db.query(f"SELECT {column} AS v FROM {table} WHERE {where}")
+    return rows[0]["v"] if rows else None
+
+
+def _run_prep_step(prep: dict, adapter, db: DbClient, vars: dict) -> tuple[list[str], list[str]]:
+    """执行一个 data_prep 步骤,返回 (did, env_reasons)。
+    固定内部序:db_wait(轮询到状态翻转)→ db_capture(查库抓 itemId/version/businessKey 进 vars)
+              → http(可选,可走独立 session/base_url,如 BPM 审批)→ 响应 capture。
+    纯确定性;让"提交→审批→等状态→查库拿键→动作"这类多步流水线可全配置表达,免手搓脚本。"""
+    did, env = [], []
+    w = prep.get("db_wait")
+    if w:
+        where = _render_where(w["where"], vars)
+        deadline = time.time() + float(w.get("timeout_s", 30))
+        got = _db_scalar(db, w["table"], w["column"], where)
+        while not _eq(got, w.get("equals")) and time.time() < deadline:
+            time.sleep(float(w.get("interval_s", 2)))
+            got = _db_scalar(db, w["table"], w["column"], where)
+        did.append(f"等库 {w['table']}.{w['column']}={w.get('equals')}(实际 {got})")
+        if not _eq(got, w.get("equals")):
+            env.append(f"db_wait 超时: {w['table']}.{w['column']} 实际 {got} 期望 {w.get('equals')}")
+            return did, env
+    for var, q in (prep.get("db_capture") or {}).items():
+        where = _render_where(q["where"], vars)
+        val = _db_scalar(db, q["table"], q["column"], where)
+        if val is None and q.get("poll_until_nonempty"):
+            deadline = time.time() + float(q.get("timeout_s", 24))
+            while val is None and time.time() < deadline:
+                time.sleep(float(q.get("interval_s", 2)))
+                val = _db_scalar(db, q["table"], q["column"], where)
+        if val is None:
+            env.append(f"db_capture 未取到 {var}({q['table']}.{q['column']})")
+        else:
+            vars[var] = val
+            did.append(f"抓库 {var}={val}")
+    if prep.get("url"):
+        sess = prep.get("session")
+        if sess:
+            sub = ApiAdapter(base_url=prep.get("base_url", ""), session_file=sess)
+            try:
+                sub.setup()
+                r = sub.call(prep, vars)
+            finally:
+                sub.teardown()
+        else:
+            r = adapter.call(prep, vars)
+        did.append(f"造前置状态 {prep.get('method')} {prep.get('url')}")
+        if not r.ok:
+            env.append(f"data_prep 失败: {r.error or r.api_status}")
+        for var, path in (prep.get("capture") or {}).items():
+            val = _dig(r.api_body, path)
+            if val is _MISSING:
+                env.append(f"data_prep 未抓到 {var}(路径 {path})")
+            else:
+                vars[var] = val
+    return did, env
 
 
 def _resolve_business_key(approve: dict, action, db: DbClient, marker: str):
@@ -118,20 +186,11 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
         # 供主动作/审批/断言用 {{var}} 引用(状态守卫/流转/编辑类用例的前提)。
         vars = {"marker": marker}
         for prep in (case.raw.get("data_prep") or []):
-            r = adapter.call(prep, vars)
-            did.append(f"造前置状态 {prep.get('method')} {prep.get('url')}")
-            if not r.ok:
-                msg = f"data_prep 失败: {r.error or r.api_status}"
-                details.append(msg)
-                env_reasons.append(msg)
-            for var, path in (prep.get("capture") or {}).items():
-                val = _dig(r.api_body, path)
-                if val is _MISSING:
-                    msg = f"data_prep 未抓到 {var}(路径 {path})"
-                    details.append(msg)
-                    env_reasons.append(msg)
-                else:
-                    vars[var] = val
+            pdid, penv = _run_prep_step(prep, adapter, db, vars)
+            did += pdid
+            for m in penv:
+                details.append(m)
+                env_reasons.append(m)
 
         # 副作用防护:操作前给目标记录拍字段快照(守卫/负向用例用)
         uc = case.raw.get("unchanged") or {}
