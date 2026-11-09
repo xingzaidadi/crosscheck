@@ -94,6 +94,8 @@ def _resolve_business_key(approve: dict, action, db: DbClient, marker: str):
     """审批前拿 businessKey:优先从提交响应取(response 路径),否则按 marker 查库。"""
     bkf = approve.get("business_key_from") or {}
     if bkf.get("response"):
+        if action is None:        # 审批前置于主动作:无动作响应可取,退 None(交由 db/vars 兜底,不崩)
+            return None
         v = _dig(action.api_body, bkf["response"])
         return None if v is _MISSING else v
     q = bkf.get("db")
@@ -122,6 +124,7 @@ def spec_to_testcase(spec) -> TestCase:
         "cleanup_targets": spec.cleanup,
         "approve": spec.approve,
         "data_prep": spec.data_prep,
+        "steps": getattr(spec, "steps", None) or [],
         "verify_poll": spec.verify_poll,
         "event_asserts": spec.assertions.get("events") or [],
         "roundtrip": spec.assertions.get("roundtrip") or {},
@@ -198,15 +201,26 @@ class _WriteCtx:
             self.verdict = Verdict.FAIL
 
 
+# ── 统一 SetupStep 协议 ──────────────────────────────────────────────
+# 造数/审批/等库/抓库 本质都是"按序执行、改状态、可抓变量"的步骤。统一成一个
+# 步骤执行器(_run_setup / _run_approve / 主动作),既被常规相位调用,也被有序
+# 流水线 _phase_pipeline 调用——审批不再被写死在"主动作之后",可在流水线里任意
+# 落位(kind: approve)。142 条老用例不配 steps,仍走常规相位,逐行等价不回归。
+
+def _run_setup(c: _WriteCtx, step: dict) -> None:
+    """一个造数/等库/抓库步骤(复合:db_wait→db_capture→http);penv 同时进明细与前置原因。"""
+    pdid, penv = _run_prep_step(step, c.adapter, c.db, c.vars)
+    c.did += pdid
+    for m in penv:
+        c.details.append(m)
+        c.env_reasons.append(m)
+
+
 def _phase_data_prep(c: _WriteCtx) -> None:
     """前置造数:逐个发请求造出所需状态单;capture 把返回里的值(如单号)抓进 vars,
     供主动作/审批/断言用 {{var}} 引用(状态守卫/流转/编辑类用例的前提)。"""
     for prep in (c.case.raw.get("data_prep") or []):
-        pdid, penv = _run_prep_step(prep, c.adapter, c.db, c.vars)
-        c.did += pdid
-        for m in penv:
-            c.details.append(m)
-            c.env_reasons.append(m)
+        _run_setup(c, prep)
 
 
 def _phase_unchanged_before(c: _WriteCtx) -> None:
@@ -237,9 +251,14 @@ def _phase_action(c: _WriteCtx) -> None:
 
 
 def _phase_approve(c: _WriteCtx) -> None:
-    """可选一键审批:解析 businessKey → 走独立鉴权 session(审批主机常与业务站不同域)
-    调审批接口 → 校响应。传输失败或响应不符预期记 fail_reasons(执行链未成立)。"""
-    approve = c.case.raw.get("approve") or {}
+    """常规相位:执行 spec.approve(若有)。流水线模式改由 _run_approve 按位置调用。"""
+    _run_approve(c, c.case.raw.get("approve") or {})
+
+
+def _run_approve(c: _WriteCtx, approve: dict) -> None:
+    """一键审批步骤:解析 businessKey → 走独立鉴权 session(审批主机常与业务站不同域)
+    调审批接口 → 校响应。传输失败或响应不符预期记 fail_reasons(执行链未成立)。
+    不再写死在主动作之后——可作为 steps 流水线里的一步任意落位。"""
     if not approve:
         return
     c.bk = _resolve_business_key(approve, c.action, c.db, c.marker)
@@ -277,6 +296,22 @@ def _phase_approve(c: _WriteCtx) -> None:
         "note": "; ".join(appr_notes)})
     if not appr_ok:
         c.fail_reasons.append("审批未通过(传输失败或响应不符预期)")
+
+
+def _phase_pipeline(c: _WriteCtx) -> None:
+    """有序步骤流水线(spec.steps):造数/主动作/审批视作同一种"步",按声明序执行——
+    审批可落在主动作前后任意位置,解除"审批必须在主动作之后"的写死约束。
+    step.kind:action=主写动作(连带前置快照+副作用前拍);approve=一键审批;
+    其余=造数复合步(db_wait→db_capture→http)。老用例不配 steps,仍走常规相位。"""
+    for step in (c.case.raw.get("steps") or []):
+        kind = (step or {}).get("kind", "setup")
+        if kind == "action":
+            _phase_unchanged_before(c)
+            _phase_action(c)
+        elif kind == "approve":
+            _run_approve(c, step)
+        else:
+            _run_setup(c, step)
 
 
 def _phase_verify(c: _WriteCtx) -> None:
@@ -445,10 +480,13 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
     cleaner.register(case, marker)
     try:
         c.adapter.setup(case)
-        _phase_data_prep(c)
-        _phase_unchanged_before(c)
-        _phase_action(c)
-        _phase_approve(c)
+        if case.raw.get("steps"):
+            _phase_pipeline(c)           # 有序流水线:造数/主动作/审批自由落位
+        else:
+            _phase_data_prep(c)          # 常规:造数 → 副作用前拍 → 主动作 → 审批
+            _phase_unchanged_before(c)
+            _phase_action(c)
+            _phase_approve(c)
         _phase_verify(c)
         _phase_idempotent(c)
         _phase_events(c)

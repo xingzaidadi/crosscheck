@@ -71,6 +71,8 @@ class ExecSpec:
     inputs: dict[str, Any] = field(default_factory=dict)
     assertions: dict[str, Any] = field(default_factory=dict)  # {response:{status,body:{path:val}}, db:[{table,where,row_count,fields}]}
     data_prep: list[Any] = field(default_factory=list)        # 造前置状态的请求列表(每项同 request 结构)
+    steps: list[Any] = field(default_factory=list)            # 可选·有序步骤流水线:造数/主动作(kind:action)/
+                                                              #   审批(kind:approve)自由落位;配了它就不走常规 data_prep→action→approve 序
     cleanup: list[Any] = field(default_factory=list)          # 清理目标(按 marker 反删,子表在前):
                                                               #   {table,column} 直删;{table,key,parent:{table,key_col,marker_col}} 按父单号删子表
     allowed_tables: list[str] = field(default_factory=list)   # diff 安全网:本次允许改动的表
