@@ -45,11 +45,18 @@ def classify_disposition(case_id: str, name: str, state: str, why: str, prose: s
     泛化映射(+workspace 细化)填;evidence/verdict/blocked_by 有则带上。零业务、纯函数。
     refine=None → 自动加载 workspace 细化规则(与 envneeds.build_env_needs 同契约);
     批量调用应在外层加载一次、显式传入,避免逐条重读。传 [] 则不细化(离线可测)。"""
-    from core.envneeds import classify_need, _load_refine
+    from core.envneeds import classify_need, _load_refine, owner_for_blocked
     if refine is None:
         refine = _load_refine()
     r = classify_need(state, prose, refine)
     owner, need = r if r else ("", "")
+    # 就绪门禁的机器判定(action-body/role/rule)比关键词乐观猜可信:仅当关键词只落到
+    # 泛化 tool(未被 workspace 规则细化,refine 从不产出 tool→tool)时,用阻塞原因锐化到真。
+    # 不覆盖 PASS(owner 空)/defect(已检出)/已细化成 env·product 的。
+    if owner == "tool":
+        bo = owner_for_blocked(blocked_by)
+        if bo:
+            owner, need = bo
     return CaseDisposition(
         case_id=case_id, name=name, verdict=verdict, state=state, why=why,
         owner=owner, need=need, evidence=evidence, blocked_by=list(blocked_by or []))

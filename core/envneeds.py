@@ -27,6 +27,22 @@ OWNER_TITLE = {
     "defect": "🐞 已检出缺陷(开发确认修)",
 }
 
+# 就绪门禁(core/readiness)机器判定的阻塞原因 → (owner, need)。
+# 机器判定比"写关键词乐观猜"可信:仅用它锐化泛化的 tool 归属(见 disposition.classify_disposition)。
+BLOCKED_OWNER: dict[str, Any] = {
+    "rule": ("product", "规则/口径未定义,需产品拍板后才能验收"),
+    "role": ("env", "当前账号够不到该接口,需对应角色账号解锁"),
+    "action-body": ("tool", "接口从未在流量里出现,需先录一次真实动作报文后建模(触发需对应账号/场景可达)"),
+}
+
+
+def owner_for_blocked(blocked_by: list[str] | None):
+    """按就绪门禁阻塞原因取 (owner, need);多原因取第一个已知的。无则 None。"""
+    for b in (blocked_by or []):
+        if b in BLOCKED_OWNER:
+            return BLOCKED_OWNER[b]
+    return None
+
 
 def _load_refine() -> list[dict]:
     """业务细化规则(workspace):[{match:[关键词...], owner, need}]。core 无则空。"""
