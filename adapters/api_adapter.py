@@ -78,9 +78,11 @@ class ApiAdapter(BaseAdapter):
         if marker_field and isinstance(body, dict) and "marker" in vars:
             body[marker_field] = vars["marker"]
         try:
-            if method in ("GET", "DELETE"):
+            if method == "GET":
                 resp = self._client.request(method, url, params=body or None, headers=headers)
             else:
+                # POST/PUT/PATCH/DELETE 一律走 json 体:Spring @RequestBody 的 DELETE(如模板数据批量删)
+                # 需要请求体而非 query;旧写法把 DELETE body 当 query 发,带 @RequestBody 的 DELETE 驱动不了。
                 resp = self._client.request(method, url, json=body, headers=headers)
         except Exception as e:  # noqa: BLE001
             return ActionResult(ok=False, error=f"请求异常: {e}")
