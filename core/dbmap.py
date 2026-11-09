@@ -53,3 +53,16 @@ def state_values(db, table: str, column: str, max_values: int = 40) -> list:
     rows = db.query(
         f"SELECT DISTINCT {column} AS v FROM {table} WHERE {column} IS NOT NULL AND {column}<>'' LIMIT {int(max_values)}")
     return [r["v"] for r in rows]
+
+
+def fk_children(db, parent_table: str) -> list[str]:
+    """按**外键图**找直接引用 parent_table 的子表(比前缀名更稳,异构命名也认)。
+    走 MySQL information_schema;非 MySQL/查不到则返回空(调用方再退回前缀推导)。只读、零业务。"""
+    try:
+        rows = db.query(
+            "SELECT DISTINCT TABLE_NAME AS t FROM information_schema.KEY_COLUMN_USAGE "
+            "WHERE REFERENCED_TABLE_NAME = :p AND TABLE_SCHEMA = DATABASE()",
+            {"p": parent_table})
+        return sorted({r["t"] for r in rows if r.get("t") and r["t"] != parent_table})
+    except Exception:  # noqa: BLE001  非 MySQL/无权限 → 交回前缀推导
+        return []

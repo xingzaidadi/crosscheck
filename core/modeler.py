@@ -129,16 +129,21 @@ def _is_name_key(key: str) -> bool:
 
 
 def _derive_children(db, parent_table: str, parent_key: str) -> list[str]:
-    """从库 schema 推导子表:同模块(同前缀)、含同一父键列的其它表。免人工列清理子表。"""
+    """推导清理子表:外键图(最稳,异构命名也认)∪ 同模块前缀,再都用"含父键列"收口。免人工列。"""
     if not db or not parent_table or not parent_key:
         return []
-    prefix = parent_table.split("_")[0] + "_"   # 同模块前缀,避免误扫全库无关表
+    from core.dbmap import fk_children
+    prefix = parent_table.split("_")[0] + "_"   # 同模块前缀兜底
+    cand: set[str] = set(fk_children(db, parent_table))   # 先 FK 图
+    for t in db.tables():                                 # 再并前缀同模块
+        if t != parent_table and t.startswith(prefix):
+            cand.add(t)
     out = []
-    for t in db.tables():
-        if t == parent_table or not t.startswith(prefix):
+    for t in cand:
+        if t == parent_table:
             continue
         try:
-            if parent_key in db.columns(t):
+            if parent_key in db.columns(t):   # 收口:必须含父键列,才能按父单号反删
                 out.append(t)
         except Exception:  # noqa: BLE001
             pass

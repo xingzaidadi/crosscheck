@@ -5,6 +5,17 @@ URL,工具自己驱动真实浏览器(登录、声明式操作、录像/截图)�
 自动建模成「接口参数 → SQL」映射(人审一次),再连库把接口返回和数据库对账,证明列表/检索结果
 是否可信。换一套页面、换一套库 = 新写一个 profile,内核一行不改。
 
+## 快速上手(新系统三步)
+
+```bash
+python run_bootstrap.py https://你的系统/任意页面   # ① 浏览器登一次,自动生成 profile(不用写 yaml)
+python run_preflight.py <site>                      # ② 自发现环境:库结构/接口目录/站点,出就绪图
+python run_crosscheck.py --workspace workspace      # ③ 一键跑完:自动建模+UI+自定义检查→清单+报告
+```
+
+- 第 ③ 步一条命令覆盖 接口 + UI + 自定义不变式(放 `workspace/checks/*.py`),出 HTML 报告 + 142 终态清单。
+- 自测整套框架:`python run_tests.py`(含零业务门禁)。
+
 ## 这是什么
 
 不是"每次让 AI 看页面猜一遍"的工具,而是:
