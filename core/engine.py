@@ -462,9 +462,11 @@ def _dump_evidence(c: _WriteCtx, run_dir) -> dict:
 
 
 def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str = "",
-                   registry_path=".", run_dir=None) -> CaseResult:
+                   registry_path=".", run_dir=None, no_cleanup: bool = False) -> CaseResult:
     """执行一条写入类 ExecSpec,返回 CaseResult(含富报告层)。db 需带写连接(清理用)。
-    控制流写死、纯确定性:按序跑各相位(见 _phase_*),不碰 LLM。"""
+    控制流写死、纯确定性:按序跑各相位(见 _phase_*),不碰 LLM。
+    no_cleanup=True:保留现场——不登记、不反删本次造数(供人工复核/看前端)。
+    不进 registry,后续跑批的 retry_pending 也不会误删。"""
     t0 = time.time()
     case = spec_to_testcase(spec)
     marker = make_marker(spec.case_id)
@@ -478,7 +480,8 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
         base_url=base_url, session_file=session_file,
         vars={"marker": marker})
     cleaner = Cleaner(db, registry_path)
-    cleaner.register(case, marker)
+    if not no_cleanup:
+        cleaner.register(case, marker)
     try:
         c.adapter.setup(case)
         if case.raw.get("steps"):
@@ -488,27 +491,42 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
             _phase_unchanged_before(c)
             _phase_action(c)
             _phase_approve(c)
-        _phase_verify(c)
-        _phase_idempotent(c)
-        _phase_events(c)
-        _phase_roundtrip(c)
-        _phase_unchanged_after(c)
-        _phase_snapshot_after(c)
-        _phase_integrity_gate(c)
+        # 护栏:前置造数没成立(data_prep 失败/未抓到键,多因环境/依赖)→ 判 ENV_ERROR 并短路,
+        # 不在不存在的单上继续跑主校验而误判成 FAIL(FAIL 会覆盖清单里已有的 PASS 定论)。
+        if c.env_reasons and c.verdict is Verdict.PASS:
+            c.verdict = Verdict.ENV_ERROR
+            c.details = ["前置造数未成立(环境/依赖),不计功能失败:"] + c.env_reasons
+        else:
+            _phase_verify(c)
+            _phase_idempotent(c)
+            _phase_events(c)
+            _phase_roundtrip(c)
+            _phase_unchanged_after(c)
+            _phase_snapshot_after(c)
+            _phase_integrity_gate(c)
     except Exception as e:  # noqa: BLE001
         c.verdict, c.details = Verdict.ENV_ERROR, [f"执行异常: {e}"]
         c.layers.append({"name": "执行异常", "ok": False, "note": str(e)})
     finally:
         c.adapter.teardown()
 
-    cleanup_ok = cleaner.cleanup(marker)
-    n_child = sum(1 for t in (case.raw.get("cleanup_targets") or []) if t.get("parent"))
-    c.did.append(f"清理:按标记删主表 + 按父单号删 {n_child} 张子表")
-    c.layers.append({
-        "name": "数据清理", "ok": cleanup_ok,
-        "expected": "本次造数全部反删,registry 销账",
-        "actual": "已销账(全删成功)" if cleanup_ok else "部分未清,标 cleanup_pending",
-        "note": f"主表按标记列反删;{n_child} 张子表按父单号(父表标记列命中)反查删"})
+    if no_cleanup:
+        cleanup_ok = True
+        c.did.append(f"保留现场(--no-cleanup):不反删本次造数,标记 {marker}")
+        c.layers.append({
+            "name": "数据清理", "ok": True,
+            "expected": "保留现场:本次造数不清理",
+            "actual": f"已跳过清理,数据保留(按标记 {marker} 可查)",
+            "note": "no_cleanup 模式:未登记 registry,后续跑批不会误删"})
+    else:
+        cleanup_ok = cleaner.cleanup(marker)
+        n_child = sum(1 for t in (case.raw.get("cleanup_targets") or []) if t.get("parent"))
+        c.did.append(f"清理:按标记删主表 + 按父单号删 {n_child} 张子表")
+        c.layers.append({
+            "name": "数据清理", "ok": cleanup_ok,
+            "expected": "本次造数全部反删,registry 销账",
+            "actual": "已销账(全删成功)" if cleanup_ok else "部分未清,标 cleanup_pending",
+            "note": f"主表按标记列反删;{n_child} 张子表按父单号(父表标记列命中)反查删"})
 
     evidence = _dump_evidence(c, run_dir)
 
