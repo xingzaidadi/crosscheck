@@ -77,6 +77,12 @@ bootstrap → preflight →  readiness →  spec/model → engine        → rep
 3. **语义回放自愈**做成一等引擎(现在只临时加了点击自愈)。
 4. **Skill 知识库 + 评审流**规范化。
 
-**最高优先级(治本)**:**源码→接口契约建模**。现在 142 里 108 条卡在"没建模"(靠逆向,又慢又脆)。读后端源码(Java/Maven DDD:`@RequestMapping`/DTO 字段/MyBatis mapper→表/校验注解/状态机)可把建模从"逆向猜"变"读契约",批量建出可执行规格,并自动得到"该拒"的精确期望、服务端自管字段(消除 TC139 类假阳)、整单 vs 明细的真实接口。
+**最高优先级(治本)·已落地 v1**:**源码→接口契约建模**。现在 142 里 108 条卡在"没建模"(靠逆向,又慢又脆)。读后端源码把建模从"逆向猜"变"读契约"。
 
-> 注:`demand`(需求)后端与 `ebuy-supplier`(供应商)是不同仓库——测当前 142 条 demand 用例需要 demand 仓库源码。
+已实现 `workspace/scripts/extract_contracts.py`(Spring/Java 通用):扫 `*Controller*.java` 得端点 → 顺 `@RequestBody` 找请求 DTO → 读 DTO 字段 + 校验注解(`@NotBlank/@NotNull/@Size/@Max`…),产出机器可读契约目录 `workspace/knowledge_base/contracts/<site>.json`。
+- 用法:`python -I workspace/scripts/extract_contracts.py <源码根> <服务上下文如 demand> --site <站点>`。
+- 已对 `ebuy-demand`(分支 `feature/dev-xuzhijun-gloabl-logistics`)提取 36 个端点,拿到 item/close、template/data/save、close/recall/discard/return/transfer 等**此前靠 UI/抓包逆向不到的**精确契约。
+- 价值验证:TC101 明细关闭直接用契约 `DemandItemCloseRequest{demandRequestCode,itemId,version}` 建模一次跑通(未碰 UI)。
+- 附带洞察:`SaveDemandRequest` 70 字段/0 必填、无 `@Size/@Past` → 超长描述/过去日期在 DTO 层无校验,TC138/TC20 的"该拒"要么是真缺陷、要么校验在 service/domain 层(可继续顺源码核实)。
+
+> 仓库地图(group `mit/finance/ma/ip`):`ebuy-demand`(需求,本测试对象)、`ebuy-supplier`(供应商)、`ebuy-sourcing`(寻源)、`ebuy-contract`(合同)、`ebuy-foundation`、`ebuy-front-web`(前端,UI 类用例可据此读页面结构替代探测)、`ebuy-ddd-framework`。
