@@ -2,9 +2,9 @@
 取代手抄多坨 YAML 锚点。环境一变(如提交须带模板)只改参数,不重写整段。
 
 目标态 target:
-  draft   → 仅 draft(可选带模板关联),止于 DRAFT
-  pending → draft(+模板+存数据)→ submit,止于 PENDING_APPROVE
-  accept  → pending + 查 businessKey → 审批 → 等 TO_ACCEPT
+  draft   → 仅 draft(可选带模板关联),止于草稿态
+  pending → draft(+模板+存数据)→ submit,止于审批中态(pending_value)
+  accept  → pending + 查 businessKey → 审批 → 等目标态(accept_value)
 
 零业务:所有 URL/字段名/模板三要素/dataValue/状态值/库表名由调用方(workspace)用 cfg 传入;
 core 只负责"按目标态把这些拼成步骤序列"。纯函数、可测。
@@ -21,7 +21,7 @@ def build_prep(target: str, cfg: dict) -> list[dict]:
       draft_url, submit_url, code_path, item_table, item_id_col,
       with_template(bool), assoc_table, assoc_match(dict: 建关联行的 where 片段),
       template_item(dict: 一条 templateList 元素), save_url, save_body(dict),
-      bpm{base_url,session,url,body}, status_table, status_col, accept_value(默认 TO_ACCEPT),
+      bpm{base_url,session,url,body}, status_table, status_col, pending_value, accept_value(目标态值),
       item_list_key(默认 itemList)。
     返回步骤序列(与 case_routes 的 data_prep 同结构),供 modeler/engine 执行。"""
     if target not in TARGETS:
@@ -71,7 +71,7 @@ def build_prep(target: str, cfg: dict) -> list[dict]:
                       "db_capture": {"ver": {"table": cfg["status_table"], "column": vf, "where": cfg["parent_where"]}}})
         return steps
 
-    # ⑤ accept:查 businessKey → BPM 审批 → 等目标受理态
+    # ⑤ accept:查 businessKey → BPM 审批 → 等目标态(accept_value)
     steps.append({"db_capture": {"bk": {"table": cfg["bk_table"], "column": cfg["bk_col"],
                                         "where": cfg["bk_where"], "poll_until_nonempty": True, "timeout_s": 24}}})
     bpm = cfg["bpm"]
