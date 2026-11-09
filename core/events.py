@@ -35,8 +35,8 @@ def _match_count(items, match_field: str | None, marker: str) -> int:
 
 
 def _http_count(cfg: dict, marker: str, vars: dict | None) -> tuple[int, int | None]:
-    from adapters.api_adapter import ApiAdapter
-    ad = ApiAdapter(base_url=cfg.get("base_url", ""), session_file=cfg.get("session"))
+    from core.connectors import make_adapter
+    ad = make_adapter("api", base_url=cfg.get("base_url", ""), session_file=cfg.get("session"))
     try:
         ad.setup()
         r = ad.call({"method": cfg.get("method", "GET"), "url": cfg["url"], "body": cfg.get("body")},

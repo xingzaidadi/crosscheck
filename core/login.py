@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from core import registry
 from core.profile import Profile
 
 
@@ -185,14 +186,18 @@ def ensure_session(profile: Profile, creds: dict | None = None, *,
         print("  已有登录态已失效,重新登录。")
 
     mode = profile.login.mode
-    if mode == "manual":
-        _manual_login(profile, session_file)
-    elif mode == "credential":
-        _credential_login(profile, creds, session_file)
-    else:
-        raise LoginError(f"未知 login.mode: {mode!r}(支持 manual / credential)")
+    fn = registry.get("login_mode", mode)
+    if fn is None:
+        raise LoginError(f"未知 login.mode: {mode!r}(支持 {' / '.join(registry.keys('login_mode'))})")
+    fn(profile, creds, session_file)
 
     if check and not _check_live(profile, session_file):
         raise LoginError("登录后存活性校验未通过:确认 login_url / liveness_url / "
                          "logged_in_selector 是否正确。")
     return session_file
+
+
+# 登录模式收口到通用注册表的 "login_mode" kind,统一 (profile, creds, session_file) 签名;
+# 加模式(如 token/oidc)只需 registry.register("login_mode", "token", fn),或 workspace/plugins 追加。
+registry.register("login_mode", "manual", lambda profile, creds, session_file: _manual_login(profile, session_file))
+registry.register("login_mode", "credential", _credential_login)

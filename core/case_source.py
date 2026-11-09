@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields as _dc_fields
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # 中文表头 → RawCase 字段(两侧空白 strip)
 COLUMN_MAP = {
@@ -155,13 +155,16 @@ def _read_json(path: str | Path, sheet: str | None = None) -> list[RawCase]:
     return out
 
 
-READERS: dict[str, Callable[..., list[RawCase]]] = {
-    ".xlsx": _read_xlsx, ".xlsm": _read_xlsx, ".xltx": _read_xlsx,
-    ".csv": _read_csv, ".json": _read_json,
-}
+# 读取器收口到通用注册表的 "case_reader" kind(按扩展名分发);
+# 加格式只需 registry.register("case_reader", ".md", fn),或 workspace/plugins 追加,不改本文件。
+from core import registry  # noqa: E402
+
+for _ext, _fn in ((".xlsx", _read_xlsx), (".xlsm", _read_xlsx), (".xltx", _read_xlsx),
+                  (".csv", _read_csv), (".json", _read_json)):
+    registry.register("case_reader", _ext, _fn)
 
 
 def read_cases(path: str | Path, sheet: str | None = None) -> list[RawCase]:
     """按扩展名分发读用例 → RawCase 列表。未知扩展名按 Excel 尝试(向后兼容)。"""
-    reader = READERS.get(Path(path).suffix.lower(), _read_xlsx)
+    reader = registry.get("case_reader", Path(path).suffix.lower(), _read_xlsx)
     return reader(path, sheet)

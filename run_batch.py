@@ -71,12 +71,12 @@ def _run_reconcile(spec: ExecSpec, case_dir: Path | None = None) -> tuple[Verdic
     mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
 
     if spec.request:
-        from adapters.api_adapter import ApiAdapter
+        from core.connectors import make_adapter
         method = (spec.request.get("method") or "GET").upper()
         url = spec.request.get("url", "")
         flt = _filters(spec.request.get("body") or {})
         rep["did"].append(f"调用接口 {method} {url}" + (f",筛选 {flt}" if flt else "(默认无筛选)"))
-        ad = ApiAdapter(base_url=spec.base_url, session_file=spec.session)
+        ad = make_adapter("api", base_url=spec.base_url, session_file=spec.session)
         try:
             ad.setup(); r = ad.call(spec.request, {})
         finally:

@@ -13,8 +13,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from adapters.api_adapter import ApiAdapter
+from adapters.api_adapter import ApiAdapter  # 仅作类型标注;构造一律走 connectors.make_adapter
 from core.cleaner import Cleaner
+from core.connectors import make_adapter
 from core.interfaces import CaseResult, DbAssertion, Expected, TestCase, Verdict
 from core.marker import make_marker
 from core.snapshot import SnapshotGuard
@@ -70,7 +71,7 @@ def _run_prep_step(prep: dict, adapter, db: DbClient, vars: dict) -> tuple[list[
     if prep.get("url"):
         sess = prep.get("session")
         if sess:
-            sub = ApiAdapter(base_url=prep.get("base_url", ""), session_file=sess)
+            sub = make_adapter("api", base_url=prep.get("base_url", ""), session_file=sess)
             try:
                 sub.setup()
                 r = sub.call(prep, vars)
@@ -270,7 +271,7 @@ def _run_approve(c: _WriteCtx, approve: dict) -> None:
     c.did.append(f"BPM 审批 {approve.get('method')} {approve.get('url')}(businessKey={c.bk})")
     appr_session = approve.get("session")
     if appr_session:
-        appr = ApiAdapter(base_url=approve.get("base_url", ""), session_file=appr_session)
+        appr = make_adapter("api", base_url=approve.get("base_url", ""), session_file=appr_session)
         try:
             appr.setup()
             c.ar = appr.call(approve, avars)
@@ -366,8 +367,8 @@ def _phase_roundtrip(c: _WriteCtx) -> None:
         c.details.append("全字段对账:未取到单号(检查 code_from)")
         return
     det = rt["detail"]
-    ad2 = ApiAdapter(base_url=det.get("base_url") or c.adapter.base_url,
-                     session_file=det.get("session") or c.session_file or c.spec.session)
+    ad2 = make_adapter("api", base_url=det.get("base_url") or c.adapter.base_url,
+                       session_file=det.get("session") or c.session_file or c.spec.session)
     try:
         ad2.setup()
         dr = ad2.call(det, {**c.vars, "code": code})
@@ -469,7 +470,7 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
     marker = make_marker(spec.case_id)
     c = _WriteCtx(
         spec=spec, case=case, db=db,
-        adapter=ApiAdapter(base_url=base_url or spec.base_url, session_file=session_file or spec.session),
+        adapter=make_adapter("api", base_url=base_url or spec.base_url, session_file=session_file or spec.session),
         guard=SnapshotGuard(db, full_scan=getattr(spec, "diff_full_scan", True)),
         verifier=Verifier(db), marker=marker,
         req=case.raw.get("request") or {},
