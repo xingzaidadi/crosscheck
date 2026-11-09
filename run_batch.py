@@ -244,6 +244,9 @@ def main():
     ap.add_argument("--excel", default=None, help="固定格式 Excel 用例(自动草拟规格)")
     ap.add_argument("--sheet", default=None, help="Excel sheet 名(默认第一个)")
     ap.add_argument("--specs", default=None, help="已建模规格目录(*.yaml)")
+    ap.add_argument("--with-specs", dest="with_specs", default=None,
+                    help="(配 --excel)额外合并人审规格目录(逗号分隔):UI/自定义类按 case_id 并入主套,"
+                         "同号以额外规格为准。让一条命令覆盖 接口+UI+自定义。")
     ap.add_argument("--auto-model", dest="auto_model", action="store_true",
                     help="(配 --excel)自动建模:复用自发现产物(路由+映射+抓包)拼出可跑规格再执行")
     ap.add_argument("--save-specs", dest="save_specs", default=None,
@@ -282,6 +285,19 @@ def main():
         print(f"[batch] 载入已建模规格 {len(specs)} 条:{args.specs}")
     else:
         print("  ✗ 需指定 --excel 或 --specs"); sys.exit(2)
+
+    # 合并额外人审规格(UI/自定义):同 case_id 以额外规格覆盖,新增的追加——一条命令覆盖 接口+UI+自定义
+    if args.with_specs:
+        by_id = {s.case_id: s for s in specs}
+        added = 0
+        for d in [x.strip() for x in args.with_specs.split(",") if x.strip()]:
+            for es in load_specs(d):
+                if es.verify_status == "human_verified":
+                    if es.case_id not in by_id:
+                        added += 1
+                    by_id[es.case_id] = es
+        specs = list(by_id.values())
+        print(f"[batch] 合并额外人审规格:{args.with_specs} → 新增 {added},现共 {len(specs)} 条")
 
     if args.only:
         want = {x.strip() for x in args.only.split(",") if x.strip()}
