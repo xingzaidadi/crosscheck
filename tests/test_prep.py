@@ -10,6 +10,8 @@ from core.prep import build_prep, TARGETS
 
 CFG = {
     "draft_url": "/x/draft", "submit_url": "/x/submit", "code_path": "data.code",
+    "code_field": "orderCode", "version_field": "version",
+    "pending_value": "PENDING", "accept_value": "ACCEPTED",
     "item_table": "x_item", "item_where": "code='{{code}}'",
     "assoc_table": "x_item_tpl", "assoc_where": "code='{{code}}' AND tpl='T'",
     "with_template": True, "template_item": {"templateCode": "T", "templateVersion": 1},
@@ -42,12 +44,12 @@ def main():
     sub = [s for s in p if s.get("url") == "/x/submit"][0]
     assert sub["body_set"]["itemList.0.id"] == "{{itemId}}", sub
     assert sub["body_set"]["itemList.0.templateList"][0]["id"] == "{{assocId}}", sub
-    assert p[-1]["db_wait"]["equals"] == "PENDING_APPROVE"
-    print("    ✓ pending:存模板数据 → submit 回带 item/关联 id → 等 PENDING_APPROVE")
+    assert p[-1]["db_wait"]["equals"] == "PENDING"
+    print("    ✓ pending:存模板数据 → submit 回带 item/关联 id → 等审批中态")
 
-    # accept:pending + BPM 审批 + 等 TO_ACCEPT
+    # accept:pending + BPM 审批 + 等受理态
     a = build_prep("accept", CFG)
-    assert "/approve" in _kinds(a) and a[-1]["db_wait"]["equals"] == "TO_ACCEPT", _kinds(a)
+    assert "/approve" in _kinds(a) and a[-1]["db_wait"]["equals"] == "ACCEPTED", _kinds(a)
     print("    ✓ accept:+ 查 businessKey → BPM 审批 → 等 TO_ACCEPT")
 
     # 无模板:不注入 templateList、不存模板数据

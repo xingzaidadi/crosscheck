@@ -29,14 +29,16 @@ def build_prep(target: str, cfg: dict) -> list[dict]:
     ilk = cfg.get("item_list_key", "itemList")
     wt = cfg.get("with_template")
     tpl_item = cfg.get("template_item")
+    cf = cfg["code_field"]          # 父单号字段名(业务,workspace 传),core 不写死
+    vf = cfg.get("version_field", "version")
     steps: list[dict] = []
 
     # ① draft(可选带模板关联:嵌套 body_set 注入 itemList.0.templateList)
-    draft_bodyset: dict[str, Any] = {"demandRequestCode": "", "version": 1}
+    draft_bodyset: dict[str, Any] = {cf: "", vf: 1}
     if wt and tpl_item:
         draft_bodyset[f"{ilk}.0.templateList"] = [dict(tpl_item)]
     steps.append({"method": "POST", "url": cfg["draft_url"], "body_set": draft_bodyset,
-                  "capture": {"code": cfg.get("code_path", "data.demandRequestCode")}})
+                  "capture": {"code": cfg["code_path"]}})
 
     # ② 查 draft 产出的 itemId(+ 带模板时查关联 id)
     cap: dict[str, Any] = {"itemId": {"table": cfg["item_table"], "column": cfg.get("item_id_col", "id"),
@@ -55,27 +57,28 @@ def build_prep(target: str, cfg: dict) -> list[dict]:
         steps.append({"db_capture": {"ver": {"table": cfg["status_table"], "column": "version",
                                              "where": cfg["parent_where"]}}})
     # ④ submit(带模板时回带 item.id + 关联 id,保住模板数据链接)
-    sub_bodyset: dict[str, Any] = {"demandRequestCode": "{{code}}", "version": "{{ver}}"}
+    sc = cfg.get("status_col", "status")
+    sub_bodyset: dict[str, Any] = {cf: "{{code}}", vf: "{{ver}}"}
     if wt:
         sub_bodyset[f"{ilk}.0.id"] = "{{itemId}}"
-        sub_bodyset[f"{ilk}.0.demandRequestCode"] = "{{code}}"
+        sub_bodyset[f"{ilk}.0.{cf}"] = "{{code}}"
         sub_bodyset[f"{ilk}.0.templateList"] = [{"id": "{{assocId}}", **tpl_item}] if tpl_item else []
     steps.append({"method": "POST", "url": cfg["submit_url"], "body_set": sub_bodyset})
 
     if target == "pending":
-        steps.append({"db_wait": {"table": cfg["status_table"], "column": cfg.get("status_col", "request_status"),
-                                  "where": cfg["parent_where"], "equals": "PENDING_APPROVE", "timeout_s": 20},
-                      "db_capture": {"ver": {"table": cfg["status_table"], "column": "version", "where": cfg["parent_where"]}}})
+        steps.append({"db_wait": {"table": cfg["status_table"], "column": sc,
+                                  "where": cfg["parent_where"], "equals": cfg["pending_value"], "timeout_s": 20},
+                      "db_capture": {"ver": {"table": cfg["status_table"], "column": vf, "where": cfg["parent_where"]}}})
         return steps
 
-    # ⑤ accept:查 businessKey → BPM 审批 → 等 TO_ACCEPT
+    # ⑤ accept:查 businessKey → BPM 审批 → 等目标受理态
     steps.append({"db_capture": {"bk": {"table": cfg["bk_table"], "column": cfg["bk_col"],
                                         "where": cfg["bk_where"], "poll_until_nonempty": True, "timeout_s": 24}}})
     bpm = cfg["bpm"]
     steps.append({"method": "GET", "base_url": bpm["base_url"], "session": bpm["session"],
                   "url": bpm["url"], "body": dict(bpm["body"])})
-    steps.append({"db_wait": {"table": cfg["status_table"], "column": cfg.get("status_col", "request_status"),
-                              "where": cfg["parent_where"], "equals": cfg.get("accept_value", "TO_ACCEPT"), "timeout_s": 45},
-                  "db_capture": {"ver": {"table": cfg["status_table"], "column": "version", "where": cfg["parent_where"]},
+    steps.append({"db_wait": {"table": cfg["status_table"], "column": sc,
+                              "where": cfg["parent_where"], "equals": cfg["accept_value"], "timeout_s": 45},
+                  "db_capture": {"ver": {"table": cfg["status_table"], "column": vf, "where": cfg["parent_where"]},
                                  "itemId": {"table": cfg["item_table"], "column": cfg.get("item_id_col", "id"), "where": cfg["item_where"]}}})
     return steps
