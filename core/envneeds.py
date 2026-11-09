@@ -1,7 +1,7 @@
-"""通用环境需求清单生成器(零业务):把每条"没通过"的用例按**该谁补**归类——
-  tool(工具侧:我补路由/建模/录报文就能跑)· env(环境侧:账号/触发/场景/数据/文件)·
+"""通用环境待补清单生成器(零业务):把每条"没通过"的用例按**该谁补**归类——
+  tool(工具侧:补路由/建模/录报文就能跑)· env(环境侧:账号/触发/场景/数据/文件)·
   product(产品侧:口径未定义)· defect(已检出缺陷,开发修)。
-核心只给"终态 → 泛化归属"的通用映射;业务细化(哪些关键词算"缺受理人账号/缺场景")
+核心只给"终态 → 泛化归属"的通用映射;业务细化(哪些关键词算"缺某角色账号/缺某场景")
 读 workspace/config/env_needs_rules.yaml,core 不认识任何领域词。
 
 换任何系统:喂该系统的 (用例, 终态, 散文) 即自动吐出"本系统待补清单",不用人手整理。
@@ -71,7 +71,7 @@ def build_env_needs(rows: list[tuple[str, str, str, str]], refine: list[dict] | 
     return groups
 
 
-def render_md(groups: dict[str, list], *, title: str = "环境需求清单(自动生成)") -> str:
+def render_md(groups: dict[str, list], *, title: str = "环境待补清单(自动生成)") -> str:
     out = [f"# {title}", "", "> 每条没通过的用例按『该谁补』归类;本清单由工具自动产出,换系统重跑即更新。", ""]
     total = sum(len(v) for v in groups.values())
     out.append("## 汇总")
