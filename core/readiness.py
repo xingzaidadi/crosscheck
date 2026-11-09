@@ -57,11 +57,14 @@ class Capabilities:
 
 
 def case_endpoints(case_id: str, prose: str, route: dict | None) -> set[str]:
-    """一条用例要动的接口:优先路由里显式配的(write.endpoint / data_prep / _source),否则从散文里抽。"""
+    """一条用例要动的接口:优先路由里显式配的(write.endpoint / request / approve / data_prep / _source),
+    否则从散文里抽。注:动作类路由(转办/退回/关闭…)主接口放在 write.request,必须一并识别,
+    否则明明已路由可跑的用例会被误判成『未识别到接口』。"""
     eps: set[str] = set()
     r = route or {}
     w = r.get("write") or {}
-    for node in ([w.get("endpoint")] + list(w.get("data_prep") or [])):
+    nodes = [w.get("endpoint"), w.get("request"), w.get("approve")] + list(w.get("data_prep") or [])
+    for node in nodes:
         if isinstance(node, dict) and node.get("url"):
             eps.add(norm_endpoint(node["url"]))
     src = ((r.get("_source") or {}) if isinstance(r, dict) else {})
