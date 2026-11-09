@@ -136,10 +136,40 @@ def _grid_cell(page, column, value, ui, row: int = 0) -> None:
 
 
 def _click(page, step, ui) -> None:
+    """按 role+name 或 text 点击;组件库按钮(图标/嵌套 span/空格文案)常让 role/exact 匹配落空,
+    故依次自愈:role+name → text 精确 → text 模糊 → `:has-text` 第一个可见可点元素。"""
+    name = step.get("name") or step.get("text") or ""
+    attempts = []
     if step.get("role") and step.get("name"):
-        page.get_by_role(step["role"], name=step["name"]).first.click(timeout=3000)
-    else:
-        page.get_by_text(str(step.get("text", "")), exact=True).first.click(timeout=3000)
+        attempts.append(lambda: page.get_by_role(step["role"], name=step["name"]).first)
+    if step.get("text"):
+        attempts.append(lambda: page.get_by_text(str(step["text"]), exact=True).first)
+    if name:
+        attempts.append(lambda: page.get_by_text(name, exact=False).first)
+        # 只认可见的(组件库表格里同名按钮常有隐藏/虚拟行副本,.first 可能命中隐藏的)
+        attempts.append(lambda: page.locator(
+            f"button:has-text('{name}'):visible, a:has-text('{name}'):visible, "
+            f"[role=button]:has-text('{name}'):visible").first)
+    last = None
+    for mk in attempts:
+        try:
+            loc = mk()
+            loc.wait_for(state="visible", timeout=2500)
+            try:
+                loc.scroll_into_view_if_needed(timeout=1500)
+            except Exception:  # noqa: BLE001
+                pass
+            loc.click(timeout=2500)
+            return
+        except Exception as e:  # noqa: BLE001  试下一个定位策略
+            last = e
+    # 兜底:强制点第一个可见同名元素(越过 antd 遮挡层/动画态)
+    try:
+        page.locator(f":is(button,a,[role=button]):has-text('{name}'):visible").first.click(timeout=2000, force=True)
+        return
+    except Exception:  # noqa: BLE001
+        pass
+    raise RuntimeError(f"点击失败(所有定位策略落空): {name!r} · {str(last)[:80]}")
 
 
 def replay(page, actions: list[dict], ui: dict | None = None, llm_resolver=None) -> list[dict]:
