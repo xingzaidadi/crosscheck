@@ -152,7 +152,7 @@ def _skip(spec, t0, detail, verdict=Verdict.SKIP, layer="状态") -> CaseResult:
                               "evidence": {}})
 
 
-def execute(spec: ExecSpec, dry_run: bool, run_dir: Path) -> CaseResult:
+def execute(spec: ExecSpec, dry_run: bool, run_dir: Path, no_cleanup: bool = False) -> CaseResult:
     t0 = time.time()
     case_dir = run_dir / "cases" / spec.case_id
 
@@ -189,7 +189,8 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path) -> CaseResult:
             return _skip(spec, t0, "未配写库账号(db.yaml default_write):写入类暂不执行,避免留脏数据")
         try:
             cr = engine.run_write_spec(spec, db, run_dir=run_dir,
-                                       registry_path=workspace_root() / ".cleanup_registry.json")
+                                       registry_path=workspace_root() / ".cleanup_registry.json",
+                                       no_cleanup=no_cleanup)
         finally:
             db.close()
         if not cr.report:
@@ -204,7 +205,7 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path) -> CaseResult:
             if db is None:
                 return _skip(spec, t0, "未配可用库(workspace/config/db.yaml)", verdict=Verdict.ENV_ERROR)
             try:
-                return ui_check.run_ui_write_spec(spec, db, run_dir)
+                return ui_check.run_ui_write_spec(spec, db, run_dir, no_cleanup=no_cleanup)
             finally:
                 db.close()
         db = _open_db(spec.db)                   # UI 读:库↔接口↔页面 三层校验
@@ -217,24 +218,29 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path) -> CaseResult:
     return _skip(spec, t0, f"{spec.mode} 模式暂不支持")
 
 
-def run_specs(specs, dry_run, run_dir, workers: int = 1):
+def run_specs(specs, dry_run, run_dir, workers: int = 1, no_cleanup: bool = False, pace: float = 0):
     """调度执行:只读(reconcile)类可并发(互不影响);写入/UI 串行(快照需安静库)。保序返回。"""
     if workers <= 1:
         out = []
         for i, s in enumerate(specs, 1):
             print(f"  [{i}/{len(specs)}] {s.case_id} {s.title[:40]} …", flush=True)
-            out.append(execute(s, dry_run, run_dir))
+            out.append(execute(s, dry_run, run_dir, no_cleanup))
         return out
     results = [None] * len(specs)
     read = [i for i, s in enumerate(specs) if s.mode == "reconcile"]
     other = [i for i, s in enumerate(specs) if s.mode != "reconcile"]
     print(f"  并发只读 {len(read)} 条(workers={workers})+ 串行写入/UI {len(other)} 条")
     for i, r in zip(read, run_pool([specs[i] for i in read],
-                                   lambda s: execute(s, dry_run, run_dir), workers)):
+                                   lambda s: execute(s, dry_run, run_dir, no_cleanup), workers)):
         results[i] = r
-    for i in other:
+    import time as _t
+    for n, i in enumerate(other):
         print(f"  [串行] {specs[i].case_id} {specs[i].title[:40]} …", flush=True)
-        results[i] = execute(specs[i], dry_run, run_dir)
+        results[i] = execute(specs[i], dry_run, run_dir, no_cleanup)
+        # 节奏控制:写入/BPM 类用例背靠背会打爆共享环境(submit 400、BPM 异步滞后、db_wait 超时),
+        # 条间留间隔让环境/BPM 跟上;最后一条不等。pace=0 关闭(默认)。
+        if pace and n < len(other) - 1:
+            _t.sleep(pace)
     return results
 
 
@@ -257,8 +263,11 @@ def main():
     ap.add_argument("--run-id", dest="run_id", default=None, help="运行标识(默认 run_时间戳)")
     ap.add_argument("--run-dir", dest="run_dir", default=None, help="运行目录(默认 <workspace>/runs/<run-id>)")
     ap.add_argument("--workers", type=int, default=1, help="只读(对账)类并发数;写入/UI 仍串行。默认 1=全串行")
+    ap.add_argument("--pace", type=float, default=0, help="写入/BPM 类用例条间间隔秒数(防背靠背打爆共享环境/BPM);0=不限速")
     ap.add_argument("--ensure-login", dest="ensure_login", action="store_true",
                     help="跑批前自动续期:对本批用到的 B 模式站点检活,失效则自动重登(A 模式失效仅告警)")
+    ap.add_argument("--no-cleanup", dest="no_cleanup", action="store_true",
+                    help="保留现场:写入/UI 类造数不反删(供人工复核/看前端)。不登记 registry,后续跑批不误删")
     ap.add_argument("--out", default=None, help="(已弃用)报告现固定输出到运行目录 report.html")
     args = ap.parse_args()
 
@@ -318,7 +327,9 @@ def main():
             tag = {"ensured": "✓ 续期/检活", "skip-manual": "⚠ A模式需人工", "error": "✗ 续期失败"}.get(a["action"], a["action"])
             print(f"  [登录] {a['site']}: {tag}" + (f" {a.get('error','')}" if a["action"] == "error" else ""))
 
-    results = run_specs(specs, args.dry_run, run_dir, args.workers)
+    if args.no_cleanup and not args.dry_run:
+        print("[batch] ⚠ --no-cleanup:写入/UI 类造数将保留不清理(保留现场)")
+    results = run_specs(specs, args.dry_run, run_dir, args.workers, args.no_cleanup, args.pace)
 
     reporter = Reporter()
     for r in results:
