@@ -66,6 +66,10 @@ class Prober:
 
     # ───────────────────────── 抓取 ─────────────────────────
 
+    # 安全录制(capture_only)默认放行的只读路径子串:命中则不拦(只拦真正的写/动作调用)
+    _READ_OK_DEFAULT = ("/page", "/detail", "/list", "/query", "/tree", "/options",
+                         "/enum", "/count", "/export", "/get", "/search")
+
     def probe(
         self,
         page_url: str,
@@ -77,12 +81,17 @@ class Prober:
         replay_actions: list[dict] | None = None,
         field_asserts: list[dict] | None = None,
         value_selectors: list[str] | None = None,
+        capture_only: bool = False,
+        read_ok: tuple | None = None,
     ) -> list[Capture]:
         """
         打开 page_url,拦截流量,可选录视频/截图/跑声明式检索动作。
         - actions 给定:按声明式步骤驱动页面(选下拉/填输入、点查询…),并在 screenshot 步骤截图。
         - trigger_selector:简单情形,点一下触发检索。
         - record=True + 交互式终端:人工操作一次。
+        - capture_only=True:安全录报文模式——拦截写/动作 POST,记下 method/url/body 后 abort,
+          请求不落服务端(零数据变更)。用于补"动作接口只有被点过才出现报文"的空白,触发它不执行它。
+          read_ok 覆盖默认放行子串(只读接口照常放行,不拦)。
         """
         from playwright.sync_api import sync_playwright  # 延迟导入,未装不影响其他模块
 
@@ -91,7 +100,12 @@ class Prober:
         with sync_playwright() as p:
             context, browser, page, owns_context = self._open(p, record)
 
-            context.on("response", self._on_response)
+            if capture_only:
+                # 安全录模式:只认被拦截+abort 的写/动作调用为捕获源;不挂 _on_response,
+                # 否则执行掉的只读查询(含 POST 分页)会被 pick_write_call 误当成"写"而假阳。
+                self._install_capture_only(context, read_ok)
+            else:
+                context.on("response", self._on_response)
 
             def shot(name: str) -> None:
                 if not self.artifacts_dir:
@@ -376,6 +390,37 @@ class Prober:
         # 而非页面加载时的空筛选请求。
         scored.sort(key=lambda x: (x[0], x[1].ts), reverse=True)
         return scored[0][1]
+
+    def _install_capture_only(self, context, read_ok: tuple | None = None) -> None:
+        """安全录模式:拦写/动作 POST(非只读、命中 url_pattern),记 body 后 abort(不落服务端)。"""
+        import json as _json
+        oks = tuple(read_ok) if read_ok else self._READ_OK_DEFAULT
+        patt = self.url_pattern or "/api/"
+
+        def handler(route):
+            req = route.request
+            path = req.url.split("?")[0]
+            hit = (patt in path) and req.method in ("POST", "PUT", "PATCH") \
+                and not any(k in path for k in oks)
+            if hit:
+                try:
+                    body = _json.loads(req.post_data) if req.post_data else None
+                except Exception:  # noqa: BLE001
+                    body = req.post_data
+                self.captures.append(Capture(url=req.url, method=req.method,
+                                             resource_type="xhr", request_body=body,
+                                             response_json=None))
+                try:
+                    route.abort()
+                except Exception:  # noqa: BLE001
+                    route.continue_()
+                return
+            route.continue_()
+
+        try:
+            context.route("**/*", handler)
+        except Exception:  # noqa: BLE001
+            pass
 
     def pick_write_call(self) -> Capture | None:
         """从捕获里挑最像'写'的那次:POST/PUT/PATCH + 带 JSON 请求体 + url 含写动作词 + 响应示成功。

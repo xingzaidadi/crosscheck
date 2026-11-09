@@ -22,7 +22,8 @@ def _default_probe(page_url: str, **kw):
     pr = Prober(url_pattern=kw.get("url_pattern", ""), session_file=kw.get("session_file"),
                 headless=kw.get("headless", True))
     pr.probe(page_url, actions=kw.get("actions"), replay_actions=kw.get("replay_actions"),
-             wait_ms=kw.get("wait_ms", 3000))
+             wait_ms=kw.get("wait_ms", 3000),
+             capture_only=kw.get("capture_only", False), read_ok=kw.get("read_ok"))
     return pr
 
 
@@ -120,7 +121,8 @@ def build_actionmap(site: str, actions: list[dict], *, probe_fn: Callable | None
             stub = capture_action(a["page_url"], probe_fn=probe_fn,
                                   actions=a.get("actions"), replay_actions=a.get("replay_actions"),
                                   session_file=a.get("session_file"), url_pattern=a.get("url_pattern", ""),
-                                  wait_ms=a.get("wait_ms", 3000), headless=a.get("headless", True))
+                                  wait_ms=a.get("wait_ms", 3000), headless=a.get("headless", True),
+                                  capture_only=a.get("capture_only", False), read_ok=a.get("read_ok"))
             if stub is None:
                 out[key] = {"ok": False, "missing": "未抓到写调用(动作未触发/响应非写)"}
             else:

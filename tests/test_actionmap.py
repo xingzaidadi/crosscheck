@@ -50,6 +50,19 @@ def main():
     assert capture_action("h", probe_fn=lambda u, **k: _FakeProber(None)) is None
     print("    ✓ 未触发写调用 → None")
 
+    # 1b) 安全录模式(capture_only):abort 掉的动作调用没有响应体(response_json=None),
+    #     仍应被 pick_write_call 挑中并成桩——零数据变更也能拿到真实报文。
+    cap_aborted = Capture(url="https://h/svc/api/order/close", method="POST", resource_type="xhr",
+                          request_body={"orderCode": "X2", "closeReason": "y"}, response_json=None)
+
+    def probe_fn_co(page_url, **kw):
+        assert kw.get("capture_only") is True, "capture_only 应透传到 prober"
+        return _FakeProber(cap_aborted)
+    stub_co = capture_action("https://h/app", probe_fn=probe_fn_co, capture_only=True,
+                             actions=[{"click": {"selector": "text=关闭"}}])
+    assert stub_co and stub_co["template_body"]["orderCode"] == "X2", stub_co
+    print("    ✓ capture_only:abort 无响应体的动作调用仍成桩(零变更录报文)")
+
     # 2) normalize_stub:去自增 id、标记字段注占位
     nz = normalize_stub(stub, marker_fields=["title"], drop_fields=["id"])
     assert "id" not in nz["template_body"] and nz["template_body"]["title"] == "{{marker}}", nz
