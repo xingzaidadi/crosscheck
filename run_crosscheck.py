@@ -44,7 +44,7 @@ def main():
     ap.add_argument("--workspace", default="workspace", help="业务数据目录")
     ap.add_argument("--excel", default=None, help="用例 Excel(默认取 workspace/cases 最新一份)")
     ap.add_argument("--with-specs", dest="with_specs", default=None,
-                    help="额外人审规格目录(默认 workspace/specs_ui_valid 若存在)")
+                    help="额外人审规格目录(默认 workspace/specs_verified 若存在)")
     ap.add_argument("--preflight", default=None, help="跑前先对该 profile 做自发现体检(可选)")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--only", default=None)
@@ -58,7 +58,7 @@ def main():
     excel = args.excel or _latest_excel(ws)
     if not excel:
         print(f"  ✗ 未找到用例 Excel(放 {ws}/cases/*.xlsx 或用 --excel 指定)"); sys.exit(2)
-    with_specs = args.with_specs or (str(ws / "specs_ui_valid") if (ws / "specs_ui_valid").exists() else None)
+    with_specs = args.with_specs or (str(ws / "specs_verified") if (ws / "specs_verified").exists() else None)
     run_id = args.run_id or f"run_{time.strftime('%Y%m%d_%H%M%S')}"
     py = sys.executable
 
