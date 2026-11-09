@@ -196,6 +196,13 @@ def replay(page, actions: list[dict], ui: dict | None = None, llm_resolver=None)
                 _grid_cell(page, a["column"], a.get("value", ""), ui, int(a.get("row", 0)))
             elif act == "click":
                 _click(page, a, ui)
+            elif act == "fill":
+                # 按 placeholder/selector 直填(搜索框等无 label 的输入);清空后填
+                if a.get("placeholder"):
+                    loc = page.get_by_placeholder(a["placeholder"], exact=False).first
+                else:
+                    loc = page.locator(a["selector"]).first
+                loc.fill(str(a.get("value", "")), timeout=3000)
             else:
                 raise RuntimeError(f"未知动作 {act}")
             row = {"action": act, "target": target, "ok": True, "error": ""}
