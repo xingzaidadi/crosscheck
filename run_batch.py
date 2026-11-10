@@ -269,7 +269,13 @@ def main():
     ap.add_argument("--no-cleanup", dest="no_cleanup", action="store_true",
                     help="保留现场:写入/UI 类造数不反删(供人工复核/看前端)。不登记 registry,后续跑批不误删")
     ap.add_argument("--out", default=None, help="(已弃用)报告现固定输出到运行目录 report.html")
+    ap.add_argument("--strict-walk", dest="strict_walk", action="store_true",
+                    help="走单对账门禁:声明走单(act_via=ui/mode=ui)却未经页面驱动的用例,verdict 降级并标红(默认关,只打分不改判定)")
     args = ap.parse_args()
+
+    if args.strict_walk:
+        import os as _os
+        _os.environ["CROSSCHECK_STRICT_WALK"] = "1"
 
     if args.workspace:
         set_workspace(args.workspace)

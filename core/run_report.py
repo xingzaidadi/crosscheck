@@ -118,9 +118,18 @@ def render(run_id: str, results: list[CaseResult], run_dir: Path) -> Path:
         if not rep:
             layers = "<div class=layer>" + "<br>".join(_esc(d) for d in r.details) + "</div>"
         evi = _evidence_html(rep.get("evidence", {}), run_dir)
+        fid = r.fidelity or {}
+        if fid.get("score") is not None:
+            g = fid.get("grade", ""); sc = fid.get("score")
+            gcolor = {"A": "#1a7f37", "B": "#2da44e", "C": "#bf8700", "D": "#cf222e"}.get(g, "#57606a")
+            av = f" · {_esc(r.act_via)}" if r.act_via else ""
+            score_chip = f"<span class=badge style='background:{gcolor}' title='走单对账保真度'>走单 {sc}/100 {_esc(g)}{av}</span>"
+        else:
+            score_chip = ""
         cards.append(f"""
 <section class=case>
   <h2><span class=badge style='background:{color}'>{label}</span>
+      {score_chip}
       {_esc(r.case_id)} <span class=title>{_esc(r.title)}</span>
       <span class=meta>{_esc(r.kind)}/{_esc(r.mode)} · {r.duration_s}s</span></h2>
   {'<div class=did><b>做了什么</b><ol>'+did+'</ol></div>' if did else ''}
@@ -167,6 +176,8 @@ table.dt th{{background:#f0f3f6}}
         "env_error": sum(1 for r in results if r.verdict is Verdict.ENV_ERROR),
         "cases": [{"case_id": r.case_id, "title": r.title, "verdict": r.verdict.value,
                    "kind": r.kind, "mode": r.mode, "duration_s": r.duration_s,
+                   "score": (r.fidelity or {}).get("score"), "grade": (r.fidelity or {}).get("grade"),
+                   "act_via": r.act_via, "ui_triggered": r.ui_triggered,
                    "note": (r.details[0] if r.details else "")} for r in results],
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     return out

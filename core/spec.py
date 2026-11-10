@@ -58,6 +58,7 @@ class ExecSpec:
     category: str = ""
     kind: str = "other"             # query | write | other —— 用例做什么
     mode: str = "manual"            # reconcile | api | ui | manual —— 怎么执行
+    act_via: str = "auto"           # 走单对账契约:auto(从 mode 推)| ui(强制页面驱动)| api(显式允许接口建单)
     verify_status: str = "draft"    # draft | human_verified(人审后才进执行)
 
     # reconcile 模式(查询类复用对账链):

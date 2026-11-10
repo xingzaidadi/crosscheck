@@ -68,6 +68,23 @@ def _run_prep_step(prep: dict, adapter, db: DbClient, vars: dict) -> tuple[list[
         else:
             vars[var] = val
             did.append(f"抓库 {var}={val}")
+    # 造态写库(通用机制):执行 workspace 传入的参数化 SQL({{var}} 以当前 vars 回填)。
+    # 用于直接把被测对象推到依赖外部系统才会产生的状态(事件/下游单据驱动的执行态)。
+    # 安全栏:UPDATE/DELETE 必须带 WHERE,防配置笔误全表误伤。SQL 由 workspace 提供(业务),core 不认内容。
+    _exec = prep.get("db_exec")
+    if _exec:
+        stmts = _exec if isinstance(_exec, list) else [_exec]
+        for raw_sql in stmts:
+            sql = _render_where(str(raw_sql), vars)
+            head = sql.lstrip()[:6].upper()
+            if head.startswith(("UPDATE", "DELETE")) and " WHERE " not in f" {sql.upper()} ":
+                env.append(f"db_exec 拒绝无 WHERE 的 {head.strip()}: {sql[:60]}")
+                continue
+            try:
+                n = db.execute_write(sql)
+                did.append(f"造态写库({head.strip()} 影响 {n} 行)")
+            except Exception as e:  # noqa: BLE001
+                env.append(f"db_exec 失败: {str(e)[:120]}")
     if prep.get("url"):
         sess = prep.get("session")
         if sess:
@@ -530,8 +547,65 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
 
     evidence = _dump_evidence(c, run_dir)
 
+    fid, audit = _score_and_audit(c, spec, evidence, run_dir)
+
     return CaseResult(
         case_id=spec.case_id, verdict=c.verdict, details=c.details,
         cleanup_ok=cleanup_ok, duration_s=round(time.time() - t0, 3),
         title=spec.title, kind=spec.kind, mode=spec.mode,
-        report={"did": c.did, "layers": c.layers, "evidence": evidence})
+        act_via=audit.get("actual_act_via", ""), ui_triggered=audit.get("ui_triggered", False),
+        fidelity=fid, audit=audit,
+        report={"did": c.did, "layers": c.layers, "evidence": evidence,
+                "fidelity": fid, "audit": audit})
+
+
+def _layer_ok(layers: list, key: str):
+    """按名字子串找层,返回其 ok;找不到返回 None(该维度不适用)。"""
+    for ly in layers:
+        if key in (ly.get("name") or ""):
+            return bool(ly.get("ok"))
+    return None
+
+
+def _score_and_audit(c: _WriteCtx, spec, evidence: dict, run_dir) -> tuple[dict, dict]:
+    """走单对账打分 + 审计(加法:不改 verdict)。接口执行器路径:无页面驱动。"""
+    from core import fidelity
+    expect_ui = (getattr(spec, "act_via", "auto") == "ui")   # 走接口执行器却声明走单 → ui_driven 记 False
+    api_ok = _layer_ok(c.layers, "提交接口")
+    db_ok = _layer_ok(c.layers, "库断言")
+    evid_ok = bool(evidence.get("data"))
+    dims = fidelity.build_dims(expect_ui=expect_ui, ui_triggered=(False if expect_ui else None),
+                               api_ok=api_ok, db_ok=db_ok, consistent=None, evidence_ok=evid_ok,
+                               require_api=True, require_db=True)   # 写执行器:接口+库两腿都必须真跑到
+    w, bands, opts = fidelity.load_scoring()
+    fid = fidelity.score_case(dims, weights=w, grade_bands=bands).as_dict()
+    c.layers.append(fidelity.score_layer(fid, int(opts.get("pass_score", 60))))
+    gated = False
+    if expect_ui and fidelity.is_strict(opts) and c.verdict is Verdict.PASS:
+        c.verdict = Verdict.FAIL          # 门禁:声明走单却经接口执行器,未经页面驱动
+        c.details = ["走单对账门禁:声明 act_via=ui 却未经页面驱动(接口建单),判不达标"] + c.details
+        gated = True
+    audit = {
+        "declared_act_via": getattr(spec, "act_via", "auto"),
+        "actual_act_via": "api",
+        "ui_triggered": False,
+        "ui_triggered_calls": [],
+        "strict_gate": gated,
+        "note": ("声明 act_via=ui 但经接口执行器运行,未经页面驱动" if expect_ui
+                 else "接口+库类用例,不计 UI 驱动维度"),
+        "fidelity": fid,
+    }
+    _dump_audit(c.spec.case_id, run_dir, audit)
+    return fid, audit
+
+
+def _dump_audit(case_id: str, run_dir, audit: dict) -> None:
+    if run_dir is None:
+        return
+    try:
+        case_dir = Path(run_dir) / "cases" / case_id
+        case_dir.mkdir(parents=True, exist_ok=True)
+        (case_dir / "audit.json").write_text(
+            json.dumps(audit, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass

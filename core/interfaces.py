@@ -107,3 +107,8 @@ class CaseResult:
     evidence: str = ""     # 截图证据路径,报告里链接
     video: str = ""        # 操作过程录像(webm)路径,报告里内嵌/链接
     report: dict = field(default_factory=dict)  # 结构化证据(做了什么/预期/实际/表/SQL/数据),富报告渲染用
+    # 走单对账·执行保真度(全可选,默认空 —— 加法接入,不影响既有构造/判定)
+    act_via: str = ""      # 本次实际执行路径:ui | api(空=未判定)
+    ui_triggered: bool = False  # 被测写动作是否由页面触发(录到的接口往返里有该写调用)
+    fidelity: dict = field(default_factory=dict)  # 打分:{score,grade,dims[...]}
+    audit: dict = field(default_factory=dict)     # 审计:声明vs实际/UI触发调用/三源一致/落盘路径

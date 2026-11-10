@@ -72,7 +72,8 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
     try:
         prober.probe(page_url, wait_ms=ui.get("wait_ms", 5000),
                      actions=ui.get("actions"), extract=ui.get("extract"),
-                     value_selectors=[a["selector"] for a in (ui.get("value_asserts") or [])])
+                     value_selectors=[a["selector"] for a in (ui.get("value_asserts") or [])],
+                     visibility_asserts=ui.get("visibility_asserts"))
     except Exception as e:  # noqa: BLE001
         return CaseResult(case_id=spec.case_id, verdict=Verdict.ENV_ERROR,
                           details=[f"页面渲染/抓取异常: {e}"], duration_s=round(time.time() - t0, 3),
@@ -82,10 +83,12 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
     picked = prober.pick_search_call() or (prober.captures[-1] if prober.captures else None)
     api_resp = picked.response_json if picked else {}
 
-    ui_res = verify_display(prober.rendered_rows, api_resp, ui)
-    layers.append(run_report.ui_layer(ui_res))
-    if not ui_res.consistent:
-        verdict = Verdict.FAIL
+    # 展示层(页面==接口)仅当配了 extract 才校验;纯可见性/纯值校验类 spec 不触发它
+    if ui.get("extract"):
+        ui_res = verify_display(prober.rendered_rows, api_resp, ui)
+        layers.append(run_report.ui_layer(ui_res))
+        if not ui_res.consistent:
+            verdict = Verdict.FAIL
 
     # 页签/按钮计算:页面显示的数 == 库真值
     if ui.get("value_asserts"):
@@ -94,6 +97,14 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
         layers.append(vlayer)
         if not vok and verdict is Verdict.PASS:
             verdict = Verdict.FAIL
+
+    # 元素可见性校验(按钮显示/隐藏类):命名控件是否在当前页面可见
+    if prober.visibility_check:
+        pok, player = prober.visibility_check
+        layers.append(player)
+        if not pok and verdict is Verdict.PASS:
+            verdict = Verdict.FAIL
+
     if picked is None:
         verdict = Verdict.ENV_ERROR
         layers.append({"name": "抓接口", "ok": False, "note": "没抓到页面触发的接口(检查 url_pattern / 是否需要操作)"})
@@ -124,7 +135,7 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
             pass
 
     details = [f"[{ly['name']}] {'一致' if ly.get('ok') else '不一致'}" for ly in layers]
-    details += ui_res.diffs + rec_diffs
+    details += (ui_res.diffs if ui.get("extract") else []) + rec_diffs
     return CaseResult(case_id=spec.case_id, verdict=verdict, details=details,
                       duration_s=round(time.time() - t0, 3),
                       title=spec.title, kind=spec.kind, mode=spec.mode,
@@ -176,7 +187,8 @@ def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = N
     verdict, layers, details = Verdict.PASS, [], []
     try:
         prober.probe(page_url, wait_ms=ui.get("wait_ms", 4000), replay_actions=model,
-                     field_asserts=_render_marker(ui.get("field_asserts") or [], marker) or None)
+                     field_asserts=_render_marker(ui.get("field_asserts") or [], marker) or None,
+                     visibility_asserts=_render_marker(ui.get("visibility_asserts") or [], marker) or None)
     except Exception as e:  # noqa: BLE001
         if cleaner and not no_cleanup:
             cleaner.cleanup(marker)
@@ -212,6 +224,15 @@ def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = N
                 verdict = Verdict.FAIL
             details += [f"字段校验不一致: {r[0]}" for r in flayer.get("rows", []) if r[-1] == "✗"]
 
+    # 元素可见性校验(按钮显示/隐藏类)
+    if prober.visibility_check:
+        pok, player = prober.visibility_check
+        layers.append(player)
+        if not pok:
+            if verdict is Verdict.PASS:
+                verdict = Verdict.FAIL
+            details += [f"可见性不符: {r[0]}" for r in player.get("rows", []) if r[-1] == "✗"]
+
     write = prober.pick_write_call()
     if write is not None:
         ok = (write.status or 0) < 400
@@ -236,8 +257,58 @@ def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = N
                    "actual": (f"已跳过清理,数据保留(标记 {marker})" if no_cleanup
                               else ("已销账" if cleanup_ok else "部分未清,标 cleanup_pending"))})
 
+    fid, audit, verdict = _score_and_audit_ui(spec, layers, write, bool(shots), bool(video), run_dir, verdict, details, marker)
+
     return CaseResult(case_id=spec.case_id, verdict=verdict, details=details or ["UI 回放+验库通过"],
                       cleanup_ok=cleanup_ok, duration_s=round(time.time() - t0, 3),
                       title=spec.title, kind=spec.kind, mode=spec.mode,
                       evidence=(shots[-1] if shots else ""), video=str(video),
-                      report={"did": did, "layers": layers, "evidence": evidence})
+                      act_via=audit.get("actual_act_via", ""), ui_triggered=audit.get("ui_triggered", False),
+                      fidelity=fid, audit=audit,
+                      report={"did": did, "layers": layers, "evidence": evidence,
+                              "fidelity": fid, "audit": audit})
+
+
+def _score_and_audit_ui(spec, layers, write, has_shots, has_video, run_dir, verdict, details, marker="") -> tuple[dict, dict, object]:
+    """UI 执行器的走单对账打分 + 审计。默认加法不改 verdict;门禁开启时对"声明走单却没走"降级。"""
+    from core import fidelity
+    from core.engine import _layer_ok, _dump_audit
+    from core.interfaces import Verdict
+    expect_ui = (getattr(spec, "act_via", "auto") != "api")
+    ui_triggered = write is not None
+    api_ok = _layer_ok(layers, "提交接口")
+    db_ok = _layer_ok(layers, "库断言")
+    evid_ok = has_shots and has_video
+    # 纯前端校验类(expect_validation)本就不落库 → 不要求库腿;其余 UI 写入要求接口+库两腿
+    require_db = not bool((spec.ui or {}).get("expect_validation"))
+    # 三源同单做实:标记须同时在【页面驱动】【写请求体】【库】三处(不再用代理)
+    if db_ok is None and not require_db:
+        consistent, src = None, {}
+    else:
+        req_body = getattr(write, "request_body", None) if write is not None else None
+        consistent, src = fidelity.tri_source_consistent(marker, req_body, ui_triggered, bool(db_ok))
+    dims = fidelity.build_dims(expect_ui=expect_ui, ui_triggered=ui_triggered,
+                               api_ok=api_ok, db_ok=db_ok, consistent=consistent, evidence_ok=evid_ok,
+                               require_api=True, require_db=require_db)
+    w, bands, opts = fidelity.load_scoring()
+    fid = fidelity.score_case(dims, weights=w, grade_bands=bands).as_dict()
+    layers.append(fidelity.score_layer(fid, int(opts.get("pass_score", 60))))
+    gated = False
+    if expect_ui and not ui_triggered and fidelity.is_strict(opts) and verdict is Verdict.PASS:
+        verdict = Verdict.FAIL          # 门禁:走单类却没录到页面触发的写调用
+        details.insert(0, "走单对账门禁:UI 回放未录到页面触发的写调用,判不达标")
+        gated = True
+    audit = {
+        "declared_act_via": getattr(spec, "act_via", "auto"),
+        "actual_act_via": "ui",
+        "ui_triggered": ui_triggered,
+        "ui_triggered_calls": ([{"method": write.method, "url": write.url, "status": write.status}]
+                               if write is not None else []),
+        "strict_gate": gated,
+        "consistency_sources": src,   # 三源同单做实:标记在 页面/写请求体/库 各源的命中详情
+        "note": ("页面驱动了被测写动作,录到该写调用" if ui_triggered
+                 else "UI 回放未录到写调用(页面可能未真正提交/被前端拦)"),
+        "fidelity": fid,
+    }
+    _dump_audit(spec.case_id, run_dir, audit)
+    return fid, audit, verdict
