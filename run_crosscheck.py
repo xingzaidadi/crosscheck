@@ -49,6 +49,8 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--only", default=None)
     ap.add_argument("--no-login", dest="no_login", action="store_true", help="跳过检活续期")
+    ap.add_argument("--no-cleanup", dest="no_cleanup", action="store_true",
+                    help="保留现场:写入/UI 类造数不反删(供人工复核/看前端)")
     ap.add_argument("--run-id", dest="run_id", default=None)
     args = ap.parse_args()
 
@@ -83,6 +85,8 @@ def main():
         cmd += ["--limit", str(args.limit)]
     if args.only:
         cmd += ["--only", args.only]
+    if args.no_cleanup:
+        cmd += ["--no-cleanup"]
     rc = _run(cmd)
 
     # 3) 自定义不变式检查(workspace/checks/*.py):有就逐个跑,汇总 pass/fail

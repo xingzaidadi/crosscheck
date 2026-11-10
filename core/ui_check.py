@@ -143,7 +143,8 @@ def _render_marker(obj, marker: str):
     return obj
 
 
-def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -> CaseResult:
+def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = None,
+                      no_cleanup: bool = False) -> CaseResult:
     """UI 写入:开页面 → 语义回放 page_model(含复杂控件+自愈)→ 提交 → 验库 → 清理 → 富报告。
     让 UI 回放/录制/自愈接进执行主链,真跑一条 UI 写入用例(页面操作这层从单测就位变成能跑)。"""
     from core.marker import make_marker
@@ -168,7 +169,7 @@ def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = N
 
     case = spec_to_testcase(spec)
     cleaner = Cleaner(db, workspace_root() / ".cleanup_registry.json") if db is not None else None
-    if cleaner:
+    if cleaner and not no_cleanup:
         cleaner.register(case, marker)
 
     did = [f"打开页面 {page_url}", f"语义回放 {len(model)} 步(唯一标记 {marker})", "提交并验库"]
@@ -177,7 +178,7 @@ def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = N
         prober.probe(page_url, wait_ms=ui.get("wait_ms", 4000), replay_actions=model,
                      field_asserts=_render_marker(ui.get("field_asserts") or [], marker) or None)
     except Exception as e:  # noqa: BLE001
-        if cleaner:
+        if cleaner and not no_cleanup:
             cleaner.cleanup(marker)
         return CaseResult(case_id=spec.case_id, verdict=Verdict.ENV_ERROR,
                           details=[f"页面渲染/回放异常: {e}"], duration_s=round(time.time() - t0, 3),
@@ -224,7 +225,7 @@ def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = N
         if vverdict is not Verdict.PASS and verdict is Verdict.PASS:
             verdict = vverdict
 
-    cleanup_ok = cleaner.cleanup(marker) if cleaner else True
+    cleanup_ok = True if no_cleanup else (cleaner.cleanup(marker) if cleaner else True)
 
     shots = [s["path"] for s in prober.screenshots]
     video = prober.video_path or ""
@@ -232,7 +233,8 @@ def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = N
     if video:
         evidence["video"] = (_relpaths([video], run_dir)[0] if run_dir else str(video))
     layers.append({"name": "数据清理", "ok": cleanup_ok,
-                   "actual": "已销账" if cleanup_ok else "部分未清,标 cleanup_pending"})
+                   "actual": (f"已跳过清理,数据保留(标记 {marker})" if no_cleanup
+                              else ("已销账" if cleanup_ok else "部分未清,标 cleanup_pending"))})
 
     return CaseResult(case_id=spec.case_id, verdict=verdict, details=details or ["UI 回放+验库通过"],
                       cleanup_ok=cleanup_ok, duration_s=round(time.time() - t0, 3),

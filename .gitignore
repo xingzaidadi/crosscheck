@@ -17,3 +17,6 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# uicapture 离线测试的生成产物(截图/视频/trace),不提交
+tests/fixtures/_uicap_out/
