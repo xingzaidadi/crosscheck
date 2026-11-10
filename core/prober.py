@@ -61,6 +61,7 @@ class Prober:
         self.rendered_rows: list[dict] = []  # DOM 实际显示的行(UI 渲染校验用)
         self.replay_results: list[dict] = []  # 语义动作回放每步结果(UI 写入用)
         self.field_check: tuple | None = None  # (ok, 报告层):字段联动/只读校验结果
+        self.visibility_check: tuple | None = None  # (ok, 报告层):元素可见性校验结果
         self.value_reads: dict[str, str] = {}  # {选择器: 页面文本}:页签/按钮计算值校验用
         self.validation_errors: list[str] = []  # 回放后页面的前端校验报错文本(前端校验类用例用)
 
@@ -80,6 +81,7 @@ class Prober:
         extract: dict | None = None,
         replay_actions: list[dict] | None = None,
         field_asserts: list[dict] | None = None,
+        visibility_asserts: list[dict] | None = None,
         value_selectors: list[str] | None = None,
         capture_only: bool = False,
         read_ok: tuple | None = None,
@@ -184,6 +186,14 @@ class Prober:
                         print(f"  触发检索点击失败(选择器可能失效): {e}")
                 page.wait_for_timeout(wait_ms)
                 shot("after_search")
+
+            # 元素可见性校验(按钮显示/隐藏类):页面载入+动作后,命名控件是否在页面(任意模式通用)
+            if visibility_asserts:
+                from core.ui_visibility import check_visibility
+                try:
+                    self.visibility_check = check_visibility(page, visibility_asserts)
+                except Exception as e:  # noqa: BLE001
+                    self.visibility_check = (False, {"name": "UI 元素可见性校验", "ok": False, "note": str(e)[:120]})
 
             # UI 渲染校验:读 DOM 里"实际显示"的值。两种模式:
             #   rows   —— 表格:rows_selector + columns{field:cell选择器} → 每行一条

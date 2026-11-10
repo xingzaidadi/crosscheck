@@ -270,7 +270,7 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
     preps = []
     for dp in (w.get("data_prep") or []):
         step = {k: dp[k] for k in ("method", "url", "session", "base_url",
-                                   "db_wait", "db_capture", "capture") if k in dp}
+                                   "db_wait", "db_capture", "db_exec", "capture") if k in dp}
         if "body" in dp:
             step["body"] = dp["body"]
         elif dp.get("url"):
