@@ -144,17 +144,21 @@ def score_layer(fid: dict, pass_score: int = 60) -> dict:
 
 def tri_source_consistent(marker: str, request_body: Any, page_drove: bool,
                           db_matched: bool) -> tuple[bool, dict[str, bool]]:
-    """三源同单做实:同一个标记必须同时出现在【页面驱动】【接口写请求体】【库】三处。
-    不再用 page_drove ∧ db 的代理,而是真的查标记是否落在写请求体里(接口这一源指向同一张单)。
-    返回 (是否一致, 各源命中详情),详情进审计供复查。"""
+    """三源同单做实:同一张单要在【页面驱动】【接口写请求体】【库】三处对得上。
+    - page_drove:页面确实触发了这次写(录到写调用)。
+    - marker_in_request:本次标记字面出现在写请求体里(证明接口打的是这张单,不是接口另造)。
+    - db_matched:声明的库断言命中(该单的效果落库;标题类断言按标记命中=字面 marker 入库,
+      状态类断言按单号命中=该单状态已变)。诚实区分:db_matched 不等于"marker 字面入库",
+      它是"这张单的库断言成立",审计里原样记录各源命中,不夸大。
+    返回 (是否一致, 各源命中详情)。"""
     import json as _json
     try:
         blob = _json.dumps(request_body, ensure_ascii=False, default=str) if request_body is not None else ""
     except Exception:  # noqa: BLE001
         blob = str(request_body)
     in_request = bool(marker) and marker in blob
-    sources = {"page_drove": bool(page_drove), "marker_in_request": in_request, "marker_in_db": bool(db_matched)}
-    return (sources["page_drove"] and in_request and sources["marker_in_db"]), sources
+    sources = {"page_drove": bool(page_drove), "marker_in_request": in_request, "db_matched": bool(db_matched)}
+    return (sources["page_drove"] and in_request and sources["db_matched"]), sources
 
 
 def load_scoring() -> tuple[dict[str, int], list[tuple[str, int]], dict[str, Any]]:

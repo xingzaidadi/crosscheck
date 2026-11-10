@@ -111,15 +111,15 @@ def test_custom_bands():
 
 
 def test_tri_source_consistent_true():
-    # 三源做实:标记同时在 页面驱动 + 写请求体 + 库 → 一致
+    # 三源做实:页面驱动 + 标记在写请求体 + 库断言命中 → 一致
     from core.fidelity import tri_source_consistent
     ok, src = tri_source_consistent("AUTOTEST_X", {"requestTitle": "AUTOTEST_X", "n": 1}, True, True)
     assert ok is True
-    assert src == {"page_drove": True, "marker_in_request": True, "marker_in_db": True}
+    assert src == {"page_drove": True, "marker_in_request": True, "db_matched": True}
 
 
 def test_tri_source_marker_not_in_request():
-    # 页面驱动了、库也有,但写请求体里没有这个标记(接口打的是另一张单)→ 不一致
+    # 页面驱动了、库也命中,但写请求体里没有这个标记(接口打的是另一张单)→ 不一致
     from core.fidelity import tri_source_consistent
     ok, src = tri_source_consistent("AUTOTEST_X", {"requestTitle": "别的单"}, True, True)
     assert ok is False and src["marker_in_request"] is False
@@ -129,7 +129,7 @@ def test_tri_source_missing_a_leg():
     from core.fidelity import tri_source_consistent
     # 没页面驱动
     ok, _ = tri_source_consistent("M", {"t": "M"}, False, True); assert ok is False
-    # 库没命中
+    # 库断言没命中
     ok, _ = tri_source_consistent("M", {"t": "M"}, True, False); assert ok is False
     # 空请求体
     ok, s = tri_source_consistent("M", None, True, True); assert ok is False and s["marker_in_request"] is False
