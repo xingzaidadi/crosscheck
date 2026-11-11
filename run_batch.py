@@ -215,6 +215,30 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path, no_cleanup: bool = Fal
             if db is not None:
                 db.close()
 
+    if spec.mode == "script":
+        # 脚本模式:跑 workspace 声明的脚本(浏览器/外部系统驱动),解析其末行 VERDICT: PASS|FAIL|SKIP|ENV_ERROR。
+        import subprocess, re as _re
+        script = (spec.request or {}).get("script") or ""
+        sp = Path(script)
+        if not sp.exists():
+            return _skip(spec, t0, f"脚本不存在: {script}", verdict=Verdict.ENV_ERROR)
+        try:
+            proc = subprocess.run([sys.executable, "-I", str(sp)], capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace", timeout=300)
+            out = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        except Exception as e:  # noqa: BLE001
+            return _skip(spec, t0, f"脚本执行异常: {str(e)[:120]}", verdict=Verdict.ENV_ERROR)
+        m = _re.findall(r"VERDICT:\s*(PASS|FAIL|SKIP|ENV_ERROR)", out)
+        tail = [ln for ln in out.splitlines() if ln.strip()][-6:]
+        if not m:
+            return _skip(spec, t0, "脚本未输出 VERDICT 标记", verdict=Verdict.ENV_ERROR)
+        vmap = {"PASS": Verdict.PASS, "FAIL": Verdict.FAIL, "SKIP": Verdict.SKIP, "ENV_ERROR": Verdict.ENV_ERROR}
+        v = vmap[m[-1]]
+        return CaseResult(case_id=spec.case_id, verdict=v, details=tail, duration_s=round(time.time() - t0, 3),
+                          title=spec.title, kind=spec.kind, mode=spec.mode,
+                          report={"did": [f"脚本驱动 {sp.name}"], "layers": [{"name": "脚本执行", "ok": v is Verdict.PASS,
+                                   "note": "; ".join(tail)[:300]}], "evidence": {}})
+
     return _skip(spec, t0, f"{spec.mode} 模式暂不支持")
 
 

@@ -86,20 +86,30 @@ def _run_prep_step(prep: dict, adapter, db: DbClient, vars: dict) -> tuple[list[
             except Exception as e:  # noqa: BLE001
                 env.append(f"db_exec 失败: {str(e)[:120]}")
     if prep.get("url"):
-        sess = prep.get("session")
-        if sess:
-            sub = make_adapter("api", base_url=prep.get("base_url", ""), session_file=sess)
-            try:
-                sub.setup()
-                r = sub.call(prep, vars)
-            finally:
-                sub.teardown()
-        else:
-            r = adapter.call(prep, vars)
+        def _do_call():
+            sess = prep.get("session")
+            if sess:
+                sub = make_adapter("api", base_url=prep.get("base_url", ""), session_file=sess)
+                try:
+                    sub.setup()
+                    return sub.call(prep, vars)
+                finally:
+                    sub.teardown()
+            return adapter.call(prep, vars)
+
+        caps = prep.get("capture") or {}
+        # capture_poll:异步产出的字段(如 BPM 稍后才建的审批节点)抓不到就重试整条调用直到超时。
+        poll = prep.get("capture_poll") or {}
+        r = _do_call()
+        if caps and poll:
+            deadline = time.time() + float(poll.get("timeout_s", 20))
+            while any(_dig(r.api_body, p) is _MISSING for p in caps.values()) and time.time() < deadline:
+                time.sleep(float(poll.get("interval_s", 2)))
+                r = _do_call()
         did.append(f"造前置状态 {prep.get('method')} {prep.get('url')}")
         if not r.ok:
             env.append(f"data_prep 失败: {r.error or r.api_status}")
-        for var, path in (prep.get("capture") or {}).items():
+        for var, path in caps.items():
             val = _dig(r.api_body, path)
             if val is _MISSING:
                 env.append(f"data_prep 未抓到 {var}(路径 {path})")
@@ -225,8 +235,46 @@ class _WriteCtx:
 # 流水线 _phase_pipeline 调用——审批不再被写死在"主动作之后",可在流水线里任意
 # 落位(kind: approve)。142 条老用例不配 steps,仍走常规相位,逐行等价不回归。
 
+def _do_login_as(c: _WriteCtx, la: dict) -> None:
+    """按前置步骤抓到的办理人,headless 登『基础账号 act_as=该办理人』,并把主写动作适配器
+    重绑到该会话——后续写动作即以该办理人身份发出。零业务:site/act_as 值/会话命名全由路由给,
+    core 不认任何具体表名或角色;act_as 本就是登录页的通用"代理登录"字段。
+    用法(路由 data_prep 里一步):
+      - login_as: {site: <站点名>, act_as: "{{抓到的办理人}}", session_var: actorSession}
+    前一步通常是 db_capture 从某记录表按单号查出办理人账号。"""
+    from core.login import ensure_session
+    from core.profile import load_profile
+    from core.config import site_credentials
+    from core.workspace import auth_dir
+    from core.connectors import make_adapter
+
+    site = la.get("site") or getattr(c.spec, "site", "")
+    actor = _render_where(str(la.get("act_as", "")), c.vars).strip()
+    if not site or not actor or "{{" in actor:
+        msg = f"login_as 未解析到 site/办理人(site={site!r} act_as={la.get('act_as')!r})"
+        c.details.append(msg); c.env_reasons.append(msg); return
+    try:
+        prof = load_profile(site)
+        creds = {**(site_credentials(site) or {}), "act_as": actor}
+        sess = str(auth_dir() / f"{site}__act_{actor}.json")
+        ensure_session(prof, creds, session_file=sess, force=bool(la.get("force")))
+        ad = make_adapter("api", base_url=(c.base_url or getattr(c.spec, "base_url", "")), session_file=sess)
+        ad.setup(c.case)
+    except Exception as e:  # noqa: BLE001
+        msg = f"act-as 登录失败(办理人 {actor}): {str(e)[:120]}"
+        c.details.append(msg); c.env_reasons.append(msg); return
+    c.adapter = ad
+    c.session_file = sess
+    c.vars[la.get("session_var", "actor_session")] = sess
+    c.did.append(f"act-as 登录办理人 {actor},写动作会话已重绑")
+
+
 def _run_setup(c: _WriteCtx, step: dict) -> None:
-    """一个造数/等库/抓库步骤(复合:db_wait→db_capture→http);penv 同时进明细与前置原因。"""
+    """一个造数/等库/抓库/换身份步骤;penv 同时进明细与前置原因。
+    login_as:按抓到的办理人换身份登录并重绑写动作会话(其余键走常规造数复合步)。"""
+    if step.get("login_as"):
+        _do_login_as(c, step["login_as"])
+        return
     pdid, penv = _run_prep_step(step, c.adapter, c.db, c.vars)
     c.did += pdid
     for m in penv:

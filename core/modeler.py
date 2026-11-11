@@ -270,7 +270,8 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
     preps = []
     for dp in (w.get("data_prep") or []):
         step = {k: dp[k] for k in ("method", "url", "session", "base_url",
-                                   "db_wait", "db_capture", "db_exec", "capture") if k in dp}
+                                   "db_wait", "db_capture", "db_exec", "capture", "capture_poll",
+                                   "login_as") if k in dp}
         if "body" in dp:
             step["body"] = dp["body"]
         elif dp.get("url"):
@@ -362,7 +363,14 @@ def model_case(raw, *, routes: dict, kb_root: Path, caps_root: Path, db=None) ->
     feature = route.get("feature") or ""
     has_mapping = (kb_root / "query_mapping" / f"{feature}.json").exists()
     mode = route.get("mode") or ("reconcile" if has_mapping else "write")
-    if mode == "reconcile":
+    if mode == "script":
+        # 脚本模式:浏览器/外部系统驱动类用例(引擎 API 复刻不出的,如跨站审批门户),
+        # 由 workspace 声明的脚本自跑并打印 VERDICT,执行器解析判定。脚本是业务,core 只透传路径。
+        spec.kind, spec.mode = "script", "script"
+        spec.request = {"script": route.get("script", "")}
+        spec.verify_status = "human_verified"
+        spec.needs_review = ["脚本模式:workspace 脚本自跑并打印 VERDICT"]
+    elif mode == "reconcile":
         spec.kind, spec.mode = "query", "reconcile"
         _fill_reconcile(spec, route, kb_root, caps_root)
     else:
