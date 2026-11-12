@@ -141,6 +141,11 @@ def render(run_id: str, results: list[CaseResult], run_dir: Path) -> Path:
     npass = sum(1 for r in results if r.verdict is Verdict.PASS)
     nfail = sum(1 for r in results if r.verdict is Verdict.FAIL)
     nskip = sum(1 for r in results if r.verdict is Verdict.SKIP)
+    npartial = sum(1 for r in results if r.verdict is Verdict.PARTIAL)
+    nblocked = sum(1 for r in results if r.verdict is Verdict.BLOCKED)
+    ninvalid = sum(1 for r in results if r.verdict is Verdict.INVALID_SPEC)
+    nenv = sum(1 for r in results if r.verdict is Verdict.ENV_ERROR)
+    ncleanup = sum(1 for r in results if not r.cleanup_ok)
     doc = f"""<!doctype html><html lang=zh><head><meta charset=utf-8><title>测试报告 {run_id}</title>
 <style>
 body{{font:14px/1.7 -apple-system,Segoe UI,Arial,sans-serif;margin:0;background:#f6f8fa;color:#1f2328}}
@@ -165,7 +170,10 @@ table.dt th{{background:#f0f3f6}}
 .evi{{margin-top:10px}} .evi>div{{margin:8px 0}}
 </style></head><body>
 <header><div style='font-size:18px;font-weight:600'>测试报告</div>
-<div class=s>运行 {run_id} · 共 {n} · <b style='color:#7ee787'>通过 {npass}</b> · <b style='color:#ff7b72'>失败 {nfail}</b> · 跳过 {nskip} · 生成 {time.strftime('%Y-%m-%d %H:%M:%S')}</div></header>
+<div class=s>运行 {run_id} · 共 {n} · <b style='color:#7ee787'>通过 {npass}</b>
+ · <b style='color:#ff7b72'>失败 {nfail}</b> · 部分 {npartial} · 阻塞 {nblocked}
+ · 规格错 {ninvalid} · 环境错 {nenv} · 未运行 {nskip} · 清理失败 {ncleanup}
+ · 生成 {time.strftime('%Y-%m-%d %H:%M:%S')}</div></header>
 <main>{''.join(cards)}</main></body></html>"""
     out = run_dir / "report.html"
     out.write_text(doc, encoding="utf-8")
@@ -173,11 +181,17 @@ table.dt th{{background:#f0f3f6}}
     (run_dir / "summary.json").write_text(json.dumps({
         "run_id": run_id, "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "total": n, "pass": npass, "fail": nfail, "skip": nskip,
-        "env_error": sum(1 for r in results if r.verdict is Verdict.ENV_ERROR),
+        "partial": npartial, "blocked": nblocked, "invalid_spec": ninvalid,
+        "env_error": nenv, "cleanup_failed": ncleanup,
         "cases": [{"case_id": r.case_id, "title": r.title, "verdict": r.verdict.value,
                    "kind": r.kind, "mode": r.mode, "duration_s": r.duration_s,
                    "score": (r.fidelity or {}).get("score"), "grade": (r.fidelity or {}).get("grade"),
                    "act_via": r.act_via, "ui_triggered": r.ui_triggered,
+                   "required_assertions": r.required_assertions,
+                   "executed_assertions": r.executed_assertions,
+                   "assertion_coverage": (len(r.executed_assertions) / len(r.required_assertions)
+                                          if r.required_assertions else None),
+                   "cleanup_ok": r.cleanup_ok,
                    "note": (r.details[0] if r.details else "")} for r in results],
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     return out
@@ -187,7 +201,7 @@ def render_index(runs_root: Path) -> Path | None:
     """扫 runs_root 下各次运行的 summary.json,出一页总览 index.html:历次通过率 + 直达各报告。"""
     runs_root = Path(runs_root)
     rows, pts = [], []
-    for d in sorted(runs_root.glob("run_*"), reverse=True):
+    for d in sorted((item for item in runs_root.iterdir() if item.is_dir()), reverse=True):
         sj = d / "summary.json"
         if not sj.exists():
             continue

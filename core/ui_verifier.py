@@ -57,6 +57,19 @@ def verify_display(rendered_rows: list[dict], api_response: dict, ui_cfg: dict) 
         api_rows = [api_rows]
     res = UiResult(consistent=True)
 
+    expectation = ui_cfg.get("cardinality") or {}
+    min_rows = expectation.get("min_rows")
+    exact_rows = expectation.get("exact_rows")
+    if min_rows is not None and (len(rendered_rows) < int(min_rows) or len(api_rows) < int(min_rows)):
+        res.consistent = False
+        res.diffs.append(f"基数前提: 页面 {len(rendered_rows)} / 接口 {len(api_rows)},至少需要 {min_rows}")
+    if exact_rows is not None and (len(rendered_rows) != int(exact_rows) or len(api_rows) != int(exact_rows)):
+        res.consistent = False
+        res.diffs.append(f"基数断言: 页面 {len(rendered_rows)} / 接口 {len(api_rows)},预期 {exact_rows}")
+    if not rendered_rows and not api_rows and not ui_cfg.get("allow_empty", False):
+        res.consistent = False
+        res.diffs.append("空集合不能证明业务用例；显式设置 allow_empty=true 才允许空状态验证")
+
     # 分页一致性:页面显示行数应等于接口这一页返回的行数
     if len(rendered_rows) != len(api_rows):
         res.consistent = False

@@ -58,7 +58,7 @@ def main():
     marker = "AUTOTEST_X"
     case = TestCase(
         case_id="TCC01", feature="需求创建", account_ref="", data_prep=None,
-        steps=[], expected=Expected(),
+        steps=[], expected=Expected(allowed_tables=["child", "parent"]),
         raw={"cleanup_targets": [
             # 子表在前:按父单号删(标记只在父表 title)
             {"table": "child", "key": "code",

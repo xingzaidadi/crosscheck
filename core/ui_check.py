@@ -69,6 +69,7 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
     did.append("抽取页面实际显示的" + ("字段" if "fields" in (ui.get("extract") or {}) else "行"))
 
     verdict, layers = Verdict.PASS, []
+    proof_refs = []
     try:
         prober.probe(page_url, wait_ms=ui.get("wait_ms", 5000),
                      actions=ui.get("actions"), extract=ui.get("extract"),
@@ -80,13 +81,16 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
                           title=spec.title, kind=spec.kind, mode=spec.mode,
                           report={"did": did, "layers": [{"name": "渲染", "ok": False, "note": str(e)}], "evidence": {}})
 
-    picked = prober.pick_search_call() or (prober.captures[-1] if prober.captures else None)
+    pattern = str(ui.get("url_pattern") or "")
+    matching = [capture for capture in prober.captures if not pattern or pattern in capture.url]
+    picked = matching[-1] if matching else None
     api_resp = picked.response_json if picked else {}
 
     # 展示层(页面==接口)仅当配了 extract 才校验;纯可见性/纯值校验类 spec 不触发它
     if ui.get("extract"):
         ui_res = verify_display(prober.rendered_rows, api_resp, ui)
         layers.append(run_report.ui_layer(ui_res))
+        proof_refs.append("ui.extract")
         if not ui_res.consistent:
             verdict = Verdict.FAIL
 
@@ -95,6 +99,7 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
         from core.ui_value import check_values
         vok, vlayer = check_values(prober.value_reads, ui["value_asserts"], db)
         layers.append(vlayer)
+        proof_refs.append("ui.value_asserts")
         if not vok and verdict is Verdict.PASS:
             verdict = Verdict.FAIL
 
@@ -102,21 +107,35 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
     if prober.visibility_check:
         pok, player = prober.visibility_check
         layers.append(player)
+        proof_refs.append("ui.visibility_asserts")
         if not pok and verdict is Verdict.PASS:
             verdict = Verdict.FAIL
 
     if picked is None:
         verdict = Verdict.ENV_ERROR
         layers.append({"name": "抓接口", "ok": False, "note": "没抓到页面触发的接口(检查 url_pattern / 是否需要操作)"})
+    elif (spec.assertions or {}).get("response"):
+        from core.verifier import Verifier
+        from core.engine import spec_to_testcase
+        from core.interfaces import ActionResult
+        response_ok, response_details = Verifier(db)._verify_response(
+            spec_to_testcase(spec), ActionResult(ok=bool(picked.status and picked.status < 400),
+                                                 api_status=picked.status, api_body=api_resp))
+        layers.append({"name": "API 响应专用断言", "ok": response_ok, "note": "; ".join(response_details)})
+        proof_refs.append("engine_assertions.response")
+        if not response_ok:
+            verdict = Verdict.FAIL
 
     rec_diffs: list[str] = []
     feature = spec.feature
-    mapping_path = kb_dir() / "query_mapping" / f"{feature}.json" if feature else None
+    mapping_path = Path(spec.mapping) if getattr(spec, "mapping", "") else (
+        kb_dir() / "query_mapping" / f"{feature}.json" if feature else None)
     if db is not None and mapping_path and mapping_path.exists() and picked is not None:
         mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
         rec = Reconciler(db, mapping).reconcile(picked.request_body or {}, api_resp)
         layers.append(run_report.reconcile_layer(rec, mapping))
         rec_diffs = rec.count_diffs + rec.field_diffs
+        proof_refs.append("mapping")
         if not rec.consistent and verdict is Verdict.PASS:
             verdict = Verdict.FAIL
 
@@ -136,11 +155,35 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
 
     details = [f"[{ly['name']}] {'一致' if ly.get('ok') else '不一致'}" for ly in layers]
     details += (ui_res.diffs if ui.get("extract") else []) + rec_diffs
+    required_ids = list((spec.raw or {}).get("assertion_ids") or [])
+    executed_ids = [key for key, binding in ((spec.raw or {}).get("assertion_bindings") or {}).items()
+                    if binding.get("ref") in proof_refs]
+    missing_ids = sorted(set(required_ids) - set(executed_ids))
+    if missing_ids and verdict is Verdict.PASS:
+        verdict = Verdict.PARTIAL
+        details.append(f"必需断言未执行:{missing_ids}")
     return CaseResult(case_id=spec.case_id, verdict=verdict, details=details,
                       duration_s=round(time.time() - t0, 3),
                       title=spec.title, kind=spec.kind, mode=spec.mode,
                       evidence=(shots[-1] if shots else ""), video=str(video),
-                      report={"did": did, "layers": layers, "evidence": evidence})
+                      report={"did": did, "layers": layers, "evidence": evidence, "proof_refs": proof_refs},
+                      required_assertions=required_ids, executed_assertions=executed_ids)
+
+
+def _executed_assertion_ids(spec, layers: list[dict]) -> list[str]:
+    bindings = (spec.raw or {}).get("assertion_bindings") or {}
+    names = {str(layer.get("name") or "") for layer in layers if layer.get("ok") is not None}
+    executed = []
+    for assertion_id, binding in bindings.items():
+        layer = str((binding or {}).get("layer") or "")
+        proof = str((binding or {}).get("proof") or "")
+        if layer == "ui" and proof == "ui_check" and any("页面" in name or "UI" in name for name in names):
+            executed.append(assertion_id)
+        elif layer == "api" and proof == "api_response" and any("接口" in name for name in names):
+            executed.append(assertion_id)
+        elif layer == "db" and proof in {"db_assertion", "reconcile"} and any("库" in name or "DB" in name for name in names):
+            executed.append(assertion_id)
+    return executed
 
 
 def _render_marker(obj, marker: str):
@@ -257,6 +300,10 @@ def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = N
                    "actual": (f"已跳过清理,数据保留(标记 {marker})" if no_cleanup
                               else ("已销账" if cleanup_ok else "部分未清,标 cleanup_pending"))})
 
+    proof_refs = []
+    if write is not None and (spec.assertions or {}).get("response"):
+        proof_refs.append("engine_assertions.response")
+    proof_refs += [f"engine_assertions.db[{index}]" for index, _ in enumerate((spec.assertions or {}).get("db") or [])]
     fid, audit, verdict = _score_and_audit_ui(spec, layers, write, bool(shots), bool(video), run_dir, verdict, details, marker)
 
     return CaseResult(case_id=spec.case_id, verdict=verdict, details=details or ["UI 回放+验库通过"],
@@ -266,7 +313,7 @@ def run_ui_write_spec(spec, db: DbClient | None = None, run_dir: Path | None = N
                       act_via=audit.get("actual_act_via", ""), ui_triggered=audit.get("ui_triggered", False),
                       fidelity=fid, audit=audit,
                       report={"did": did, "layers": layers, "evidence": evidence,
-                              "fidelity": fid, "audit": audit})
+                              "fidelity": fid, "audit": audit, "proof_refs": proof_refs})
 
 
 def _score_and_audit_ui(spec, layers, write, has_shots, has_video, run_dir, verdict, details, marker="") -> tuple[dict, dict, object]:

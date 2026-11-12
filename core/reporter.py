@@ -9,10 +9,12 @@ from .interfaces import CaseResult, Verdict
 
 _LABEL = {
     Verdict.PASS: "通过", Verdict.FAIL: "失败", Verdict.ENV_ERROR: "环境错",
-    Verdict.ABORTED: "作废", Verdict.SKIP: "跳过",
+    Verdict.PARTIAL: "部分", Verdict.BLOCKED: "阻塞", Verdict.INVALID_SPEC: "规格错",
+    Verdict.ABORTED: "作废", Verdict.SKIP: "未运行",
 }
 _COLOR = {
     Verdict.PASS: "#1a7f37", Verdict.FAIL: "#cf222e", Verdict.ENV_ERROR: "#9a6700",
+    Verdict.PARTIAL: "#bf8700", Verdict.BLOCKED: "#8250df", Verdict.INVALID_SPEC: "#cf222e",
     Verdict.ABORTED: "#8250df", Verdict.SKIP: "#57606a",
 }
 
@@ -32,6 +34,9 @@ class Reporter:
             "total": len(self.results),
             "pass": by[Verdict.PASS],
             "fail": by[Verdict.FAIL],
+            "partial": by[Verdict.PARTIAL],
+            "blocked": by[Verdict.BLOCKED],
+            "invalid_spec": by[Verdict.INVALID_SPEC],
             "env_error": by[Verdict.ENV_ERROR],
             "aborted": by[Verdict.ABORTED],
             "skip": by[Verdict.SKIP],
@@ -55,7 +60,8 @@ class Reporter:
         s = self.summary()
         lines.append(
             f"\n小结: 共 {s['total']} · 通过 {s['pass']} · 失败 {s['fail']} · "
-            f"环境错 {s['env_error']} · 作废 {s['aborted']} · 跳过 {s['skip']}")
+            f"部分 {s['partial']} · 阻塞 {s['blocked']} · 规格错 {s['invalid_spec']} · "
+            f"环境错 {s['env_error']} · 作废 {s['aborted']} · 未运行 {s['skip']} · 清理失败 {s['cleanup_failed']}")
         return "\n".join(lines)
 
     def to_html(self, path: str | Path) -> Path:
@@ -94,7 +100,9 @@ th{{background:#f6f8fa}}
 <h1>批量测试报告</h1>
 <div class=sum>共 <b>{s['total']}</b> · 通过 <b style='color:#1a7f37'>{s['pass']}</b>
  · 失败 <b style='color:#cf222e'>{s['fail']}</b> · 环境错 {s['env_error']}
- · 作废 {s['aborted']} · 跳过 {s['skip']} &nbsp;|&nbsp; 生成 {time.strftime('%Y-%m-%d %H:%M:%S')}</div>
+ · 部分 {s['partial']} · 阻塞 {s['blocked']} · 规格错 {s['invalid_spec']}
+ · 作废 {s['aborted']} · 未运行 {s['skip']} · 清理失败 {s['cleanup_failed']}
+ &nbsp;|&nbsp; 生成 {time.strftime('%Y-%m-%d %H:%M:%S')}</div>
 <table><thead><tr><th>用例</th><th>标题</th><th>类型/方式</th><th>结论</th><th>说明</th><th>耗时</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table>
 </body></html>"""

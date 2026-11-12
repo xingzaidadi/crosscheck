@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 
 from core.interfaces import TestCase
+from core.security import validate_cleanup_targets
 from db.client import DbClient
 
 
@@ -26,9 +27,12 @@ class Cleaner:
     def _load(self) -> dict:
         if self.registry_path.exists():
             try:
-                return json.loads(self.registry_path.read_text(encoding="utf-8"))
-            except Exception:  # noqa: BLE001
-                return {}
+                data = json.loads(self.registry_path.read_text(encoding="utf-8"))
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"cleanup registry 损坏,拒绝继续写入:{self.registry_path}") from exc
+            if not isinstance(data, dict):
+                raise RuntimeError(f"cleanup registry 格式错误:{self.registry_path}")
+            return data
         return {}
 
     def _save(self, reg: dict) -> None:
@@ -39,8 +43,10 @@ class Cleaner:
     def register(self, case: TestCase, marker: str) -> None:
         """执行前登记:本次将在哪些表按 marker 造数(status=pending)。"""
         targets = (case.raw or {}).get("cleanup_targets") or []
+        validate_cleanup_targets(targets, case.expected.allowed_tables)
         reg = self._load()
-        reg[marker] = {"feature": case.feature, "targets": targets, "status": "pending"}
+        reg[marker] = {"feature": case.feature, "targets": targets,
+                       "allowed_tables": case.expected.allowed_tables, "status": "pending"}
         self._save(reg)
 
     def cleanup(self, marker: str) -> bool:
@@ -50,6 +56,8 @@ class Cleaner:
         if not entry:
             return True
         ok, errors = True, []
+        validate_cleanup_targets(entry.get("targets") or [], entry.get("allowed_tables") or [])
+        escaped_marker = _escape_like(marker)
         # 子表在前、主表在后(避外键)。两种目标:
         #   直接:{table, column}            —— DELETE WHERE column LIKE %marker%
         #   父查:{table, key, parent:{table, key_col, marker_col}}
@@ -63,11 +71,12 @@ class Cleaner:
                 if parent:
                     sql = (f"DELETE FROM {table} WHERE {t['key']} IN "
                            f"(SELECT {parent['key_col']} FROM {parent['table']} "
-                           f"WHERE {parent['marker_col']} LIKE :m)")
-                    self.db.execute_write(sql, {"m": f"%{marker}%"})
+                           f"WHERE {parent['marker_col']} LIKE :m ESCAPE '!')")
+                    self.db.execute_write(sql, {"m": f"%{escaped_marker}%"})
                 elif t.get("column"):
                     self.db.execute_write(
-                        f"DELETE FROM {table} WHERE {t['column']} LIKE :m", {"m": f"%{marker}%"})
+                        f"DELETE FROM {table} WHERE {t['column']} LIKE :m ESCAPE '!'",
+                        {"m": f"%{escaped_marker}%"})
             except Exception as e:  # noqa: BLE001  清理失败不抛,标 pending
                 ok = False
                 errors.append(f"{table}: {e}")
@@ -91,3 +100,7 @@ class Cleaner:
     def known_markers(self) -> list[str]:
         """当前所有残留 marker,给 SnapshotGuard 排除,避免误报脏库。"""
         return list(self._load().keys())
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("!", "!!").replace("%", "!%").replace("_", "!_")

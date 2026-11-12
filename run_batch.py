@@ -38,6 +38,8 @@ from core.interfaces import CaseResult, Verdict  # noqa: E402
 from core.reconciler import Reconciler  # noqa: E402
 from core import engine, ui_check, run_report  # noqa: E402
 from core.config import db_config, db_params  # noqa: E402
+from core.security import trusted_workspace_script  # noqa: E402
+from core.suite_plan import build_suite_plan, write_suite_plan  # noqa: E402
 from db.client import DbClient  # noqa: E402
 
 
@@ -110,6 +112,7 @@ def _run_reconcile(spec: ExecSpec, case_dir: Path | None = None) -> tuple[Verdic
         db.close()
     rep["did"].append(f"连库 {spec.db or 'default'},按『{feature}』映射把接口参数翻成 SQL 对账")
     rep["layers"].append(run_report.reconcile_layer(res, mapping))
+    rep["proof_refs"] = ["mapping"]
 
     if case_dir is not None:
         case_dir.mkdir(parents=True, exist_ok=True)
@@ -152,7 +155,8 @@ def _skip(spec, t0, detail, verdict=Verdict.SKIP, layer="状态") -> CaseResult:
                               "evidence": {}})
 
 
-def execute(spec: ExecSpec, dry_run: bool, run_dir: Path, no_cleanup: bool = False) -> CaseResult:
+def execute(spec: ExecSpec, dry_run: bool, run_dir: Path, no_cleanup: bool = False,
+            allow_workspace_scripts: bool = False) -> CaseResult:
     t0 = time.time()
     case_dir = run_dir / "cases" / spec.case_id
 
@@ -204,6 +208,9 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path, no_cleanup: bool = Fal
             db, has_write = _open_rw(spec)
             if db is None:
                 return _skip(spec, t0, "未配可用库(workspace/config/db.yaml)", verdict=Verdict.ENV_ERROR)
+            if not has_write:
+                db.close()
+                return _skip(spec, t0, "未配写库账号: UI 写入拒绝执行", verdict=Verdict.ENV_ERROR)
             try:
                 return ui_check.run_ui_write_spec(spec, db, run_dir, no_cleanup=no_cleanup)
             finally:
@@ -218,10 +225,14 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path, no_cleanup: bool = Fal
     if spec.mode == "script":
         # 脚本模式:跑 workspace 声明的脚本(浏览器/外部系统驱动),解析其末行 VERDICT: PASS|FAIL|SKIP|ENV_ERROR。
         import subprocess, re as _re
+        if not allow_workspace_scripts:
+            return _skip(spec, t0, "脚本执行默认禁用;确认 workspace 可信后加 --allow-workspace-scripts",
+                         verdict=Verdict.ENV_ERROR, layer="脚本安全门禁")
         script = (spec.request or {}).get("script") or ""
-        sp = Path(script)
-        if not sp.exists():
-            return _skip(spec, t0, f"脚本不存在: {script}", verdict=Verdict.ENV_ERROR)
+        try:
+            sp = trusted_workspace_script(script, workspace_root())
+        except ValueError as exc:
+            return _skip(spec, t0, str(exc), verdict=Verdict.ENV_ERROR, layer="脚本安全门禁")
         try:
             proc = subprocess.run([sys.executable, "-I", str(sp)], capture_output=True, text=True,
                                   encoding="utf-8", errors="replace", timeout=300)
@@ -242,25 +253,28 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path, no_cleanup: bool = Fal
     return _skip(spec, t0, f"{spec.mode} 模式暂不支持")
 
 
-def run_specs(specs, dry_run, run_dir, workers: int = 1, no_cleanup: bool = False, pace: float = 0):
+def run_specs(specs, dry_run, run_dir, workers: int = 1, no_cleanup: bool = False, pace: float = 0,
+              allow_workspace_scripts: bool = False):
     """调度执行:只读(reconcile)类可并发(互不影响);写入/UI 串行(快照需安静库)。保序返回。"""
     if workers <= 1:
         out = []
         for i, s in enumerate(specs, 1):
             print(f"  [{i}/{len(specs)}] {s.case_id} {s.title[:40]} …", flush=True)
-            out.append(execute(s, dry_run, run_dir, no_cleanup))
+            out.append(finalize_result(s, execute(s, dry_run, run_dir, no_cleanup, allow_workspace_scripts)))
         return out
     results = [None] * len(specs)
     read = [i for i, s in enumerate(specs) if s.mode == "reconcile"]
     other = [i for i, s in enumerate(specs) if s.mode != "reconcile"]
     print(f"  并发只读 {len(read)} 条(workers={workers})+ 串行写入/UI {len(other)} 条")
     for i, r in zip(read, run_pool([specs[i] for i in read],
-                                   lambda s: execute(s, dry_run, run_dir, no_cleanup), workers)):
+                                   lambda s: finalize_result(s, execute(s, dry_run, run_dir, no_cleanup,
+                                                                       allow_workspace_scripts)), workers)):
         results[i] = r
     import time as _t
     for n, i in enumerate(other):
         print(f"  [串行] {specs[i].case_id} {specs[i].title[:40]} …", flush=True)
-        results[i] = execute(specs[i], dry_run, run_dir, no_cleanup)
+        results[i] = finalize_result(specs[i], execute(specs[i], dry_run, run_dir, no_cleanup,
+                                                       allow_workspace_scripts))
         # 节奏控制:写入/BPM 类用例背靠背会打爆共享环境(submit 400、BPM 异步滞后、db_wait 超时),
         # 条间留间隔让环境/BPM 跟上;最后一条不等。pace=0 关闭(默认)。
         if pace and n < len(other) - 1:
@@ -268,7 +282,26 @@ def run_specs(specs, dry_run, run_dir, workers: int = 1, no_cleanup: bool = Fals
     return results
 
 
-def main():
+def finalize_result(spec: ExecSpec, result: CaseResult) -> CaseResult:
+    required = list((spec.raw or {}).get("assertion_ids") or [])
+    if not required:
+        return result
+    bindings = (spec.raw or {}).get("assertion_bindings") or {}
+    proof_refs = set((result.report or {}).get("proof_refs") or [])
+    executed = set(result.executed_assertions)
+    for assertion_id, binding in bindings.items():
+        if (binding or {}).get("ref") in proof_refs:
+            executed.add(assertion_id)
+    result.required_assertions = required
+    result.executed_assertions = sorted(executed)
+    missing = sorted(set(required) - executed)
+    if missing and result.verdict is Verdict.PASS:
+        result.verdict = Verdict.PARTIAL
+        result.details.append(f"必需断言未执行:{missing}")
+    return result
+
+
+def main() -> int:
     ap = argparse.ArgumentParser(description="批量执行用例 → 汇总报告")
     ap.add_argument("--workspace", default=None, help="业务数据目录")
     ap.add_argument("--excel", default=None, help="固定格式 Excel 用例(自动草拟规格)")
@@ -284,6 +317,7 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="只跑前 N 条(0=全部)")
     ap.add_argument("--only", default=None, help="只跑这些 case_id(逗号分隔,如 TC22,TC21),用于定点复跑")
     ap.add_argument("--dry-run", action="store_true", help="只草拟/校验,不连库执行")
+    ap.add_argument("--plan-only", action="store_true", help="只生成套件分类/层覆盖/缺口报告,不执行用例")
     ap.add_argument("--run-id", dest="run_id", default=None, help="运行标识(默认 run_时间戳)")
     ap.add_argument("--run-dir", dest="run_dir", default=None, help="运行目录(默认 <workspace>/runs/<run-id>)")
     ap.add_argument("--workers", type=int, default=1, help="只读(对账)类并发数;写入/UI 仍串行。默认 1=全串行")
@@ -292,6 +326,8 @@ def main():
                     help="跑批前自动续期:对本批用到的 B 模式站点检活,失效则自动重登(A 模式失效仅告警)")
     ap.add_argument("--no-cleanup", dest="no_cleanup", action="store_true",
                     help="保留现场:写入/UI 类造数不反删(供人工复核/看前端)。不登记 registry,后续跑批不误删")
+    ap.add_argument("--allow-workspace-scripts", action="store_true",
+                    help="允许执行 workspace 内 Python 脚本。仅对可信 workspace 开启;不是安全沙箱")
     ap.add_argument("--out", default=None, help="(已弃用)报告现固定输出到运行目录 report.html")
     ap.add_argument("--strict-walk", dest="strict_walk", action="store_true",
                     help="走单对账门禁:声明走单(act_via=ui/mode=ui)却未经页面驱动的用例,verdict 降级并标红(默认关,只打分不改判定)")
@@ -306,6 +342,7 @@ def main():
 
     if args.excel:
         raws = read_cases(args.excel, args.sheet)
+        raw_titles = {raw.case_id: raw.name for raw in raws}
         if args.auto_model:
             routes = load_routes(config_dir() / "case_routes.yaml")
             specs = model_cases(raws, routes=routes, kb_root=kb_dir(), caps_root=captures_dir())
@@ -332,6 +369,12 @@ def main():
         for d in [x.strip() for x in args.with_specs.split(",") if x.strip()]:
             for es in load_specs(d):
                 if es.verify_status == "human_verified":
+                    current_title = raw_titles.get(es.case_id) if args.excel else None
+                    if current_title:
+                        from core.modeler import _norm_title
+                        if _norm_title(current_title) != _norm_title(es.title):
+                            print(f"  [跳过陈旧规格] {es.case_id}: Excel={current_title} / spec={es.title}")
+                            continue
                     if es.case_id not in by_id:
                         added += 1
                     by_id[es.case_id] = es
@@ -351,6 +394,17 @@ def main():
     run_dir.mkdir(parents=True, exist_ok=True)
     print(f"[batch] 运行目录: {run_dir}")
 
+    if args.excel:
+        suite_plan = build_suite_plan(raws, specs, source=str(Path(args.excel).resolve()))
+        plan_json, plan_md = write_suite_plan(suite_plan, run_dir)
+        print(f"[batch] 套件指纹: {suite_plan['suite_id']} · 可执行 {suite_plan['executable']}/{suite_plan['total']}"
+              f" · 覆盖缺口 {suite_plan['coverage_gaps']} → {plan_md}")
+        if args.plan_only:
+            print(f"[batch] 规划完成: {plan_json}")
+            return 0
+    elif args.plan_only:
+        print("  ✗ --plan-only 需配 --excel"); sys.exit(2)
+
     if args.ensure_login and not args.dry_run:
         from core.session_ensure import ensure_batch_sessions
         for a in ensure_batch_sessions(specs):
@@ -359,7 +413,8 @@ def main():
 
     if args.no_cleanup and not args.dry_run:
         print("[batch] ⚠ --no-cleanup:写入/UI 类造数将保留不清理(保留现场)")
-    results = run_specs(specs, args.dry_run, run_dir, args.workers, args.no_cleanup, args.pace)
+    results = run_specs(specs, args.dry_run, run_dir, args.workers, args.no_cleanup, args.pace,
+                        args.allow_workspace_scripts)
 
     reporter = Reporter()
     for r in results:
@@ -381,7 +436,15 @@ def main():
         print(f"  ✓ 失败归因: {nonpass}")
         if tr["bug_candidates"]:
             print(f"  ⚠ 疑似缺陷(建议开发确认): {tr['bug_candidates']}")
+    summary = reporter.summary()
+    if summary["cleanup_failed"]:
+        return 5
+    if summary["fail"] or summary["env_error"] or summary["aborted"] or summary["partial"] or summary["invalid_spec"]:
+        return 1
+    if summary["blocked"] or summary["skip"]:
+        return 4
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

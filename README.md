@@ -14,6 +14,7 @@ python run_crosscheck.py --workspace workspace      # ③ 一键跑完:自动建
 ```
 
 - 第 ③ 步一条命令覆盖 接口 + UI + 自定义不变式(放 `workspace/checks/*.py`),出 HTML 报告 + 142 终态清单。
+- 每次 Excel 跑批前先生成套件指纹与分类覆盖计划:`suite_plan.md/json` 会列出测试意图、要求的 UI/API/DB 层、已具备层和缺口；case_id 被新套件复用时，旧路由/规格不会直接覆盖。
 - 自测整套框架:`python run_tests.py`(含零业务门禁)。
 
 ## 这是什么
@@ -91,7 +92,15 @@ python run_crosscheck.py --workspace workspace      # ③ 一键跑完:自动建
 ## 跑
 
 ```bash
-pip install -r requirements.txt
+# Python 3.10+。建议在虚拟环境中安装。
+python -m venv .venv
+# Windows PowerShell: .\.venv\Scripts\Activate.ps1
+# Linux/macOS: source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+# 需要完全复现已验证版本时,改用: python -m pip install -r requirements.lock
+python -m playwright install chromium
+python scripts/preflight_install.py
 
 # 1) 建一个 workspace 骨架(自管业务目录)
 python scripts/init_workspace.py ./workspace
@@ -112,9 +121,18 @@ python run_verify.py reconcile --profile <你的站点>   # 用审过的映射�
 
 > 把 `./workspace` 命名成别的位置时,给每条命令加 `--workspace <dir>`,或设 `VTA_WORKSPACE`。
 
+## 安全边界
+
+- 只连接隔离测试环境。查询使用只读账号;造数/清理使用独立、最小权限的写账号,不要连接生产库。
+- `cleanup` 是删除操作的显式白名单,且写入规格必须配置 `allowed_tables` 作为变更安全网;所有表名和列名都会校验为 SQL 标识符,不接受 SQL 片段。
+- `credentials.yaml` 和 `.auth/` 含明文口令或登录态,只能保存在自管 workspace,不得压缩、提交或转发。
+- workspace 中的 Python 文件拥有当前用户权限,不是安全沙箱。默认不执行;只有确认来源可信时才加 `--allow-workspace-scripts`。
+- 对外分发不要手工压缩仓库目录。执行 `python scripts/build_release.py`,它只打包 Git 跟踪文件并拒绝敏感路径。
+
 ## 测试
 
 ```bash
+python run_tests.py                    # 完整离线回归(交付前必跑)
 python tests/test_prober_capture.py     # 抓包 → 自动建模
 python tests/test_reconcile.py          # 参数→SQL / 枚举翻译 / join / 字段映射 / 一致&不一致
 python tests/test_sentinel_total.py     # 哨兵值跳过 + 总数核对
@@ -125,3 +143,40 @@ python tests/test_record_report.py      # 录像/截图/接口/报告 四件套
 
 测试全程用一个中性样例域(表 `items`、接口 `/api/items/search`、feature `列表检索`),
 本地起网页 + sqlite,不碰任何真实环境。
+
+## 发布
+
+项目采用 MIT License。交付前执行:
+
+```bash
+python run_tests.py
+python scripts/preflight_install.py
+python scripts/build_release.py
+```
+
+发布包输出到 `dist/crosscheck-source.zip`,不会包含本机的 `workspace/`、凭据、登录态、抓包或报告。
+
+## Agent / Skill 使用
+
+仓库内提供 `.agents/skills/crosscheck/SKILL.md`。支持 repo-local Skill 的 Agent 打开本项目后，可按该 Skill 编排 CLI。
+
+Skill 的第一阶段固定为**自动收集信息**，随后以 pipeline 形式连续执行：读取现有 profile、workspace、用例和 readiness，自动完成安装预检、环境检查、登录态检查、dry-run 和小批试跑。pilot 通过且安全门禁正常后，会直接批量执行所有当前 READY 用例，不再询问是否继续；draft、blocked 和覆盖缺口项进入报告。只有无法确认非生产环境、需要人工登录、写入权限/清理范围或脚本信任边界时才提问。它不会要求用户在对话中粘贴密码、Token 或 Cookie。
+
+推荐让用户用自然语言提出任务，例如“帮我接入这个测试系统”或“执行这批 Excel 用例并分析报告”；Agent 负责收集缺失信息和选择命令，crosscheck CLI 负责确定性执行与判定。
+
+## 标准套件 DSL
+
+复杂业务建议先将散文 Excel 导入套件级隔离目录：
+
+```powershell
+python scripts/import_suite.py cases.xlsx --workspace workspace --suite-id my-system-feature-v1 --profile my-system
+python scripts/score_suite.py workspace/suites/my-system-feature-v1
+python run_suite.py --suite workspace/suites/my-system-feature-v1 --workspace workspace --plan-only
+python run_suite.py --suite workspace/suites/my-system-feature-v1 --workspace workspace --ensure-login
+```
+
+目录中的 `suite.yaml` 描述环境和执行策略，`cases/*.yaml` 使用 fixture → action → assertion → cleanup 格式。`case_id` 为套件级全局唯一值，原 Excel 的 `TC01` 只保存在 `source.case_key`，从根源上避免旧套件同编号规格串入。模板见 `templates/suite.example.yaml` 和 `templates/case.example.yaml`。
+
+case-gen YAML 使用 `python scripts/import_casegen.py ...` 导入。正式执行由 `run_suite.py` 从 canonical case 编译执行计划；共享 `workspace/specs_verified` 和 `run_batch.py --excel` 仅保留为迁移兼容路径。
+
+完整能力验收标准见 `docs/GENERAL_TOOL_ACCEPTANCE.md`；优化设计与历史错位见 `docs/OPTIMIZATION_ROADMAP.md`。

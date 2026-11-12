@@ -11,6 +11,8 @@ from urllib.parse import quote_plus
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
+from core.security import validate_sql_identifier
+
 
 def _engine_from_params(p: dict) -> Engine:
     """
@@ -65,6 +67,8 @@ class DbClient:
 
     def count_distinct(self, table: str, pk: str, where: str) -> int:
         """核对用:COUNT(DISTINCT 主键)。"""
+        validate_sql_identifier(table, label="table")
+        validate_sql_identifier(pk, label="primary key")
         sql = f"SELECT COUNT(DISTINCT {pk}) AS c FROM {table} WHERE {where}"
         return int(self.query(sql)[0]["c"])
 
@@ -95,10 +99,12 @@ class DbClient:
 
     def row_count(self, table: str) -> int:
         """表行数(count(*))。快照用。"""
+        validate_sql_identifier(table, label="table")
         return int(self.query(f"SELECT COUNT(*) AS c FROM {table}")[0]["c"])
 
     def columns(self, table: str) -> list[str]:
         """列出表的字段名。自动建模把接口参数往这些列上匹配。"""
+        validate_sql_identifier(table, label="table")
         dialect = self._ro.dialect.name
         if dialect == "sqlite":
             rows = self.query(f"PRAGMA table_info({table})")

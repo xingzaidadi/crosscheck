@@ -1,5 +1,7 @@
 # 复制到 <workspace>/config/db.yaml 填真实连接。db.yaml 不提交(见 .gitignore)。
 # 只读优先:查询/校验走 readonly;写操作(造数/清理)走 write(独立测试账号)。
+# 安全要求:只连隔离测试库;写账号仅授予所需表的 SELECT/INSERT/UPDATE/DELETE,
+# 不授予 DROP/ALTER/CREATE,绝不复用生产账号。
 #
 # 支持两种结构:
 #   - 老式(sqlite 测试): readonly.dsn / write.dsn

@@ -28,6 +28,8 @@ except Exception:
 
 ROOT = Path(__file__).resolve().parent
 
+from core.security import trusted_workspace_script  # noqa: E402
+
 
 def _latest_excel(ws: Path) -> str | None:
     xs = sorted((ws / "cases").glob("*.xlsx"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -51,6 +53,8 @@ def main():
     ap.add_argument("--no-login", dest="no_login", action="store_true", help="跳过检活续期")
     ap.add_argument("--no-cleanup", dest="no_cleanup", action="store_true",
                     help="保留现场:写入/UI 类造数不反删(供人工复核/看前端)")
+    ap.add_argument("--allow-workspace-scripts", action="store_true",
+                    help="允许执行可信 workspace 内的规格脚本、自定义检查和 manifest")
     ap.add_argument("--run-id", dest="run_id", default=None)
     args = ap.parse_args()
 
@@ -75,6 +79,15 @@ def main():
         _run([py, "-I", "run_preflight.py", "--workspace", str(ws), "--profile", args.preflight])
 
     # 2) 主套:自动建模 + 合并 UI 规格 + 检活
+    plan_cmd = [py, "-I", "run_batch.py", "--workspace", str(ws), "--excel", excel,
+                "--auto-model", "--plan-only", "--run-id", f"{run_id}_plan"]
+    if with_specs:
+        plan_cmd += ["--with-specs", with_specs]
+    plan_rc = _run(plan_cmd)
+    if plan_rc != 0:
+        print("  ✗ 套件规划失败,已停止执行"); sys.exit(plan_rc)
+
+    # 3) 主套执行
     cmd = [py, "-I", "run_batch.py", "--workspace", str(ws), "--excel", excel,
            "--auto-model", "--run-id", run_id]
     if with_specs:
@@ -87,25 +100,32 @@ def main():
         cmd += ["--only", args.only]
     if args.no_cleanup:
         cmd += ["--no-cleanup"]
+    if args.allow_workspace_scripts:
+        cmd += ["--allow-workspace-scripts"]
     rc = _run(cmd)
 
-    # 3) 自定义不变式检查(workspace/checks/*.py):有就逐个跑,汇总 pass/fail
+    # 4) 自定义不变式检查(workspace/checks/*.py):有就逐个跑,汇总 pass/fail
     checks_dir = ws / "checks"
     extra = {"ran": 0, "pass": 0, "fail": 0, "detail": []}
-    if checks_dir.exists():
+    if checks_dir.exists() and not args.allow_workspace_scripts:
+        print("  ⚠ 已跳过 workspace/checks/*.py;确认来源可信后加 --allow-workspace-scripts")
+    elif checks_dir.exists():
         for chk in sorted(checks_dir.glob("*.py")):
-            r = subprocess.run([py, "-I", str(chk)], cwd=str(ROOT), capture_output=True, text=True)
+            safe_check = trusted_workspace_script(chk, ws)
+            r = subprocess.run([py, "-I", str(safe_check)], cwd=str(ROOT), capture_output=True, text=True)
             ok = r.returncode == 0
             extra["ran"] += 1; extra["pass" if ok else "fail"] += 1
             extra["detail"].append({"check": chk.name, "ok": ok, "tail": (r.stdout or r.stderr).strip().splitlines()[-1:] })
             print(f"  [检查] {chk.name}: {'通过' if ok else '失败'}")
 
-    # 4) 刷新终态清单(142 条全覆盖账)
+    # 5) 刷新终态清单(142 条全覆盖账)
     mf = ws / "scripts" / "run_manifest.py"
-    if mf.exists():
-        _run([py, "-I", str(mf)])
+    if mf.exists() and args.allow_workspace_scripts:
+        _run([py, "-I", str(trusted_workspace_script(mf, ws))])
+    elif mf.exists():
+        print("  ⚠ 已跳过 workspace/scripts/run_manifest.py;确认来源可信后加 --allow-workspace-scripts")
 
-    # 5) 统一小结
+    # 6) 统一小结
     print("\n" + "=" * 60)
     print("一键编排完成")
     rp = ws / "runs" / run_id / "report.html"

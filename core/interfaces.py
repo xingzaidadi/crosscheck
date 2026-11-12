@@ -87,6 +87,9 @@ class Adapter(ABC):
 class Verdict(str, Enum):
     PASS = "pass"
     FAIL = "fail"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    INVALID_SPEC = "invalid_spec"
     ENV_ERROR = "env_error"   # 登录失败/脏库作废等,不计入功能失败
     ABORTED = "aborted"       # 哨兵发现标记外变化,本次作废重跑
     SKIP = "skip"             # 未建模/未人审/非本期支持 —— 批量跑里透明跳过
@@ -112,3 +115,5 @@ class CaseResult:
     ui_triggered: bool = False  # 被测写动作是否由页面触发(录到的接口往返里有该写调用)
     fidelity: dict = field(default_factory=dict)  # 打分:{score,grade,dims[...]}
     audit: dict = field(default_factory=dict)     # 审计:声明vs实际/UI触发调用/三源一致/落盘路径
+    required_assertions: list[str] = field(default_factory=list)
+    executed_assertions: list[str] = field(default_factory=list)

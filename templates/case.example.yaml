@@ -1,0 +1,47 @@
+schema_version: 1
+case_id: feature-action-001
+title: 结构化业务用例标题
+suite_id: my-system-feature-20261111
+version: "1.0"
+source:
+  case_key: TC01
+  file: source.xlsx
+  row: 2
+priority: P1
+status: draft
+scenario_type: workflow
+business_tags: [workflow]
+layers:
+  required: [ui, api, db]
+actors:
+  operator:
+    profile: my-system
+    act_as: test_user
+data:
+  fixtures:
+    - name: prepared_state
+      recipe: replace.me
+      parameters: {}
+actions:
+  ui: []
+  api: []
+  db: []
+assertions:
+  ui: []
+  api: []
+  db: []
+cleanup:
+  strategy: marker
+  targets: []
+evidence:
+  required: [screenshot, api_request, api_response, db_result]
+approval:
+  status: draft
+  content_hash: ''
+execution:
+  # status 改为 ready 前必须补齐并重新计算 approval.content_hash。
+  # 每个 assertions.*[].id 都要绑定到实际 proof，不能只写 layer。
+  # assertion_bindings:
+  #   A-UI-001: {layer: ui, proof: ui_check, ref: ui.extract}
+  #   A-API-001: {layer: api, proof: api_response, ref: engine_assertions.response}
+  #   A-DB-001: {layer: db, proof: db_assertion, ref: engine_assertions.db[0]}

@@ -20,6 +20,12 @@ def classify(verdict, details: list[str]) -> dict:
     """返回 {bucket, reason}。bucket ∈ pass|environment|modeling|bug_candidate|unknown。"""
     if verdict is Verdict.PASS:
         return {"bucket": "pass", "reason": ""}
+    if verdict is Verdict.PARTIAL:
+        return {"bucket": "partial", "reason": "必需断言或测试层只完成了一部分"}
+    if verdict is Verdict.BLOCKED:
+        return {"bucket": "blocked", "reason": (details[0] if details else "")[:60]}
+    if verdict is Verdict.INVALID_SPEC:
+        return {"bucket": "modeling", "reason": "规格无效或审批/来源漂移"}
     if verdict is Verdict.SKIP:
         return {"bucket": "skipped", "reason": (details[0] if details else "")[:60]}
     text = " ".join(details or [])

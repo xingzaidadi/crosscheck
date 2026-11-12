@@ -39,6 +39,7 @@ SUBDIRS = [
     "captures",                        # 抓包样本 / 提交体模板
     "artifacts",
     "runs",                            # 一次运行一个文件夹(report.html + 证据)
+    "suites",                          # 套件级隔离:每套用例独立 cases/specs/captures/mappings
     ".auth",
 ]
 

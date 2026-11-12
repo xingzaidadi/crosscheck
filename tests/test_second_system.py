@@ -75,6 +75,7 @@ def main():
         routes = {
             "defaults": {"base_url": base, "code_path": "data.bookCode"},
             "by_case_id": {"BK01": {
+                "case_title": "BK01-新增图书上架保存",
                 "feature": "图书上架", "mode": "write",
                 "write": {
                     "endpoint": {"method": "POST", "url": "/api/book/add"},

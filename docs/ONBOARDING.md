@@ -1,5 +1,9 @@
 # 接入一个新业务(零改框架码)
 
+开始前先按根目录 README 安装 Python 3.10+、全部依赖和 Chromium,并运行 `python scripts/preflight_install.py`。
+
+新项目先导入到 `<workspace>/suites/<suite-id>`，补齐 canonical YAML 后用 `run_suite.py` 执行。旧 Excel/run_batch 流程只用于迁移兼容，不是新项目主路径。
+
 crosscheck 是通用测试框架:喂散文用例 → 自动建模 → 执行 → 出「页面↔接口↔库」多方验证报告。
 **框架代码(`core/` `adapters/` `run_*.py`)零业务,一行不用改**;一个业务的全部东西(用例、库连接、登录态、映射、抓包、报告)都在它自己的 `workspace/` 目录里。接入新业务 = 建一个 workspace + 填配置。
 
@@ -48,3 +52,7 @@ python run_batch.py --excel cases/<用例>.xlsx --auto-model --workspace <ws>
 ## 红线
 - 业务数据只进 `workspace/`(已 gitignore);**不要把接口地址/库表/账号写进 `core/`**。
 - 写操作必须有清理 + `allowed_tables`;未人审的规格不执行。
+- 只使用隔离测试环境的最小权限账号;写账号不得拥有建库、删表或生产库权限。
+- `cleanup` 仅列出允许反删的目标,写规格同时必须配置非空 `allowed_tables`;表名和列名只允许 SQL 标识符,不允许 SQL 片段。
+- 不接收来源不明的 workspace。正式 canonical 流程默认不运行任意 Python 脚本；旧兼容路径仅在明确审核后才允许脚本。
+- 对外交付执行 `python scripts/build_release.py`;不要手工压缩包含 workspace、凭据或登录态的目录。

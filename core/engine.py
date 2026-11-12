@@ -592,11 +592,18 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
             "expected": "本次造数全部反删,registry 销账",
             "actual": "已销账(全删成功)" if cleanup_ok else "部分未清,标 cleanup_pending",
             "note": f"主表按标记列反删;{n_child} 张子表按父单号(父表标记列命中)反查删"})
+        if not cleanup_ok and c.verdict is Verdict.PASS:
+            c.verdict = Verdict.ABORTED
+            c.details.append("业务断言通过但清理失败,本次结果作废")
 
     evidence = _dump_evidence(c, run_dir)
 
     fid, audit = _score_and_audit(c, spec, evidence, run_dir)
 
+    proof_refs = []
+    if (spec.assertions or {}).get("response"):
+        proof_refs.append("engine_assertions.response")
+    proof_refs += [f"engine_assertions.db[{index}]" for index, _ in enumerate((spec.assertions or {}).get("db") or [])]
     return CaseResult(
         case_id=spec.case_id, verdict=c.verdict, details=c.details,
         cleanup_ok=cleanup_ok, duration_s=round(time.time() - t0, 3),
@@ -604,7 +611,7 @@ def run_write_spec(spec, db: DbClient, *, base_url: str = "", session_file: str 
         act_via=audit.get("actual_act_via", ""), ui_triggered=audit.get("ui_triggered", False),
         fidelity=fid, audit=audit,
         report={"did": c.did, "layers": c.layers, "evidence": evidence,
-                "fidelity": fid, "audit": audit})
+                "fidelity": fid, "audit": audit, "proof_refs": proof_refs})
 
 
 def _layer_ok(layers: list, key: str):

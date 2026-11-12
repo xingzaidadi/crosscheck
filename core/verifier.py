@@ -119,6 +119,9 @@ class Verifier:
                 ok = False
                 details.append(f"[{a.table}] 行数: 预期 ≥{a.row_count_min} vs 实际 {len(rows)} (where: {where})")
             for col, expected in (a.fields or {}).items():
+                if not rows:
+                    ok = False
+                    details.append(f"[{a.table}] 字段断言没有目标行: {col}")
                 bad = [r for r in rows if not _eq(r.get(col), expected)]
                 if bad:
                     got = bad[0].get(col)

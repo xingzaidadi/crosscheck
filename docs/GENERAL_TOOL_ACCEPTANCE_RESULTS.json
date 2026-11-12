@@ -1,0 +1,97 @@
+{
+  "total": 13,
+  "passed": 13,
+  "results": [
+    {
+      "id": "P0-01",
+      "title": "空数据和基数不足不能 PASS",
+      "passed": true,
+      "evidence": "tests/test_empty_evidence_gate.py",
+      "details": "empty evidence gate passed"
+    },
+    {
+      "id": "P0-02",
+      "title": "套件/审批/内容哈希漂移拒绝",
+      "passed": true,
+      "evidence": "tests/test_suite_compiler.py",
+      "details": "suite compiler passed"
+    },
+    {
+      "id": "P0-03",
+      "title": "旧编号与陈旧路由污染拒绝",
+      "passed": true,
+      "evidence": "tests/test_route_fidelity.py",
+      "details": "route fidelity passed"
+    },
+    {
+      "id": "P0-04",
+      "title": "清理失败和登记册安全门禁",
+      "passed": true,
+      "evidence": "tests/test_cleaner_child.py",
+      "details": "通用 Cleaner 子表按父单号清理 验证:\n\n    ✓ 子表只有父单号也能清:按父表标题标记反查父单号删子表\n    ✓ 无关单据(别的父单号)不受影响\n    ✓ 清理成功 registry 销账\n\n全部通过 ✅  —— 通用子表按父单号清理就位(标记只在父单也能连带清子表)"
+    },
+    {
+      "id": "P0-05",
+      "title": "非生产授权门禁",
+      "passed": true,
+      "evidence": "tests/test_run_suite_cli.py",
+      "details": "[suite] demo · schema=1/1 · compile_candidates=1 · structure_score=90.0\n[suite] 评分: C:\\Users\\MI\\AppData\\Local\\Temp\\tmpfri3xt4o\\workspace\\suites\\demo\\reports\\suite_score.json\n[suite] 未确认非生产环境: suite.authorization.confirmed_non_production 必须为 true\n[suite] demo · schema=1/1 · compile_candidates=1 · structure_score=90.0\n[suite] 评分: C:\\Users\\MI\\AppData\\Local\\Temp\\tmpfri3xt4o\\workspace\\suites\\demo\\reports\\suite_score.json\n[suite] compiled=1 invalid=0 plan=C:\\Users\\MI\\AppData\\Local\\Temp\\tmpfri3xt4o\\workspace\\suites\\demo\\reports\\execution_plan.json\nrun_suite CLI passed"
+    },
+    {
+      "id": "P1-01",
+      "title": "Canonical 编译为不可变执行计划",
+      "passed": true,
+      "evidence": "tests/test_suite_compiler.py",
+      "details": "suite compiler passed"
+    },
+    {
+      "id": "P1-02",
+      "title": "Pilot/批量/熔断/恢复状态机",
+      "passed": true,
+      "evidence": "tests/test_pipeline_runner.py",
+      "details": "pipeline runner passed"
+    },
+    {
+      "id": "P1-03",
+      "title": "连接器配方与变更审批失效",
+      "passed": true,
+      "evidence": "tests/test_suite_bindings.py",
+      "details": "suite connector binding passed"
+    },
+    {
+      "id": "P1-04",
+      "title": "case-gen YAML 直接导入",
+      "passed": true,
+      "evidence": "tests/test_casegen_import.py",
+      "details": "case-gen import passed"
+    },
+    {
+      "id": "P1-05",
+      "title": "断言级结果和跨运行报告",
+      "passed": true,
+      "evidence": "tests/test_report_index.py",
+      "details": "报告跨运行聚合 验证:\n\n    ✓ render 落 summary.json:total=3 pass=1 fail=1 skip=1,逐例明细齐\n    ✓ render_index 总览:列出 run_A/run_B、通过率、趋势、直达各报告链接\n\n全部通过 ✅  —— 报告跨运行聚合(summary.json + 总览 index.html)就位"
+    },
+    {
+      "id": "P2-01",
+      "title": "两个无关业务不改 core 编译",
+      "passed": true,
+      "evidence": "tests/test_cross_domain_canonical.py",
+      "details": "cross-domain canonical compile passed"
+    },
+    {
+      "id": "P2-02",
+      "title": "发布白名单和秘密扫描",
+      "passed": true,
+      "evidence": "tests/test_release_policy.py",
+      "details": "release policy passed"
+    },
+    {
+      "id": "P2-03",
+      "title": "Skill 流水线结构有效",
+      "passed": true,
+      "evidence": ".agents/skills/crosscheck/SKILL.md",
+      "details": "C:\\Users\\MI\\Desktop\\vendor-test-agent\\.agents\\skills\\crosscheck\\SKILL.md"
+    }
+  ]
+}

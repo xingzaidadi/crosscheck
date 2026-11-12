@@ -19,6 +19,7 @@ LLM 只在建模期作为"补全草稿"的可选挂钩(默认关,离线/免费�
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +33,23 @@ def _module_leaf(module: str) -> str:
     return parts[-1] if parts else ""
 
 
-def route_case(raw, routes: dict) -> dict | None:
+def _norm_title(value: str) -> str:
+    value = re.sub(r"^\s*[A-Za-z]*\d+\s*[-—_:：]*\s*", "", value or "")
+    return re.sub(r"[\s\-—_:：/（）()]+", "", value).lower()
+
+
+def _route_title_matches(raw, route: dict) -> bool:
+    """Prevent stale case-id routes from binding to a new suite with reused IDs."""
+    expected = route.get("case_title") or route.get("title")
+    if not expected:
+        return True
+    actual_norm, expected_norm = _norm_title(raw.name), _norm_title(str(expected))
+    return bool(actual_norm and expected_norm and (
+        actual_norm == expected_norm or actual_norm in expected_norm or expected_norm in actual_norm
+    ))
+
+
+def route_case(raw, routes: dict) -> tuple[dict | None, str]:
     """把一条用例路由到一个功能配置。优先级:case_id 精确 > 模块末级 > 标题/步骤关键词。
 
     routes 结构(workspace/config/case_routes.yaml):
@@ -42,19 +59,21 @@ def route_case(raw, routes: dict) -> dict | None:
     命中则返回 defaults 合并后的配置(feature 必含),否则 None。
     """
     if not routes:
-        return None
+        return None, "none"
     defaults = routes.get("defaults") or {}
     by_id = routes.get("by_case_id") or {}
     if raw.case_id in by_id:
-        return {**defaults, **by_id[raw.case_id]}
+        cfg = by_id[raw.case_id]
+        if _route_title_matches(raw, cfg):
+            return {**defaults, **cfg}, "case_id"
     leaf = _module_leaf(raw.module)
     blob = f"{raw.name}\n{getattr(raw, 'steps_text', '')}\n{leaf}"
     for rule in (routes.get("by_keyword") or []):
         terms = rule.get("match") or []
         if terms and any(t in blob for t in terms):
             cfg = {k: v for k, v in rule.items() if k != "match"}
-            return {**defaults, **cfg}
-    return None
+            return {**defaults, **cfg}, "keyword"
+    return None, "none"
 
 
 # ───────────────────────── 查询类:拼可跑的对账规格 ─────────────────────────
@@ -207,6 +226,18 @@ def _build_body(cfg: dict) -> dict:
     return body
 
 
+def _apply_actor_context(body: dict, actor: dict | None) -> dict:
+    """Apply project-declared actor bindings without teaching core business field names."""
+    if not actor:
+        return body
+    values = actor.get("values") or actor
+    for target, source in (actor.get("bindings") or {}).items():
+        value = values.get(source) if isinstance(source, str) else source
+        if value not in (None, ""):
+            _set_path(body, target, value)
+    return body
+
+
 def _set_path(obj, dotted: str, value) -> None:
     """按点路径写值:支持嵌套与列表下标,如 'itemList.0.quantity'。中间缺省自动建 dict。
     纯通用工具(覆盖任意层字段,写入类造数常用),零业务。"""
@@ -247,6 +278,7 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
     spec.code_path = route.get("code_path", "") or spec.code_path
 
     w = route.get("write") or {}
+    actor = route.get("actor") or w.get("actor")
     endpoint = w.get("endpoint") or {}
     tpl_path = w.get("template")
     inline = w.get("inline_body")   # actionmap 录制的动作桩报文,替代外部 template 文件
@@ -275,19 +307,19 @@ def _fill_write(spec: ExecSpec, route: dict, kb_root: Path, caps_root: Path, db=
         if "body" in dp:
             step["body"] = dp["body"]
         elif dp.get("url"):
-            step["body"] = _build_body({"template": dp.get("template", tpl_path),
+            step["body"] = _apply_actor_context(_build_body({"template": dp.get("template", tpl_path),
                                         "drop_fields": dp.get("drop_fields", w.get("drop_fields")),
                                         "item_key": dp.get("item_key", w.get("item_key")),
                                         "item_drop": dp.get("item_drop", w.get("item_drop")),
                                         "marker_fields": dp.get("marker_fields", marker_fields),
-                                        "body_set": dp.get("body_set")})
+                                        "body_set": dp.get("body_set")}), actor)
         preps.append(step)
     spec.data_prep = preps
 
-    body = _build_body({"template": tpl_path, "inline_body": inline,
+    body = _apply_actor_context(_build_body({"template": tpl_path, "inline_body": inline,
                         "drop_fields": w.get("drop_fields"),
                         "item_key": w.get("item_key"), "item_drop": w.get("item_drop"),
-                        "marker_fields": marker_fields, "body_set": w.get("body_set")})
+                        "marker_fields": marker_fields, "body_set": w.get("body_set")}), actor)
 
     table = w.get("table")
     pkey, pmcol = w.get("parent_key"), w.get("parent_marker_col")
@@ -355,9 +387,17 @@ def model_case(raw, *, routes: dict, kb_root: Path, caps_root: Path, db=None) ->
     路由可用 mode: reconcile|write 显式指定,覆盖自动判断。
     """
     spec = from_raw(raw)
-    route = route_case(raw, routes)
+    route, route_source = route_case(raw, routes)
     if route is None:
-        spec.needs_review = [f"未命中路由(workspace/config/case_routes.yaml):{_module_leaf(raw.module)} / {raw.name[:30]}"]
+        spec.needs_review = [f"未命中可信路由或 case_id 已复用(workspace/config/case_routes.yaml):"
+                             f"{_module_leaf(raw.module)} / {raw.name[:30]}"]
+        spec.verify_status = "draft"
+        return spec
+
+    if route_source == "case_id" and not (route.get("case_title") or route.get("title")):
+        spec.needs_review = [f"case_id 路由缺 case_title 语义签名,为防旧套件编号复用已拒绝自动执行:"
+                             f"{raw.case_id} / {raw.name[:30]}"]
+        spec.verify_status = "draft"
         return spec
 
     feature = route.get("feature") or ""
