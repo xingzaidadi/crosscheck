@@ -1,0 +1,12 @@
+{
+  "_comment": "下一阶段（阶段二）设计稿示例，当前尚未实现。crosscheck_mcp 模块在本轮不存在，请勿当作可运行配置。MiCo Agent 支持 --mcp-config-file。",
+  "mcpServers": {
+    "crosscheck": {
+      "command": "python",
+      "args": ["-m", "crosscheck_mcp"],
+      "env": {
+        "CROSSCHECK_WORKSPACE_ROOT": "C:\\crosscheck-workspaces"
+      }
+    }
+  }
+}

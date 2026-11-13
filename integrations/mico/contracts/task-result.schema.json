@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://crosscheck/integrations/mico/contracts/task-result.schema.json",
+  "title": "Crosscheck Task（输入规格与返回对象契约）",
+  "description": "来源于 core/task/model.py 与 core/task/service.py 的真实契约。输入字段用于 task.yaml/json；返回对象为 crosscheck task create/status 的 JSON 输出。",
+  "type": "object",
+  "definitions": {
+    "taskSpecification": {
+      "type": "object",
+      "description": "task 文件（YAML 或 JSON）的输入字段",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "description": "1-96 字符的安全标识符；在该 workspace 内唯一，重复会被拒绝。省略时引擎生成 task-<hex>。"
+        },
+        "operation": {
+          "type": "string",
+          "enum": ["plan", "run"],
+          "description": "plan=评分并生成执行计划（只读，不触碰实时系统）；run=pilot 后执行当前 READY 用例。"
+        },
+        "workspace": {
+          "type": "string",
+          "description": "绝对路径；必须与执行时 --workspace 一致。"
+        },
+        "suite": {
+          "type": "string",
+          "description": "workspace 内 canonical 套件目录（含 suite.yaml），相对或绝对，但必须位于 workspace 内。"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "cases": { "type": "array", "items": { "type": "string" }, "description": "用例 id 列表，空=全部。" },
+            "only": { "description": "等价于 --only，列表或逗号分隔字符串。" }
+          },
+          "additionalProperties": true
+        },
+        "execution": {
+          "type": "object",
+          "properties": {
+            "pilot_size": { "type": "integer", "minimum": 0 },
+            "ensure_login": { "type": "boolean" },
+            "resume": { "type": "boolean", "description": "false 才会向引擎传 --no-resume。" },
+            "run_id": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "authorization": {
+          "type": "object",
+          "description": "随任务持久化的声明性元数据。真正的非生产/写入门禁由 suite.yaml 的 authorization 与引擎写入门禁强制，不由此字段决定。",
+          "properties": {
+            "confirmed_non_production": { "type": "boolean" },
+            "allow_write": { "type": "boolean" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "required": ["operation", "workspace", "suite"]
+    },
+    "taskRecord": {
+      "type": "object",
+      "description": "crosscheck task create/status 返回的任务对象（core/task/model.py: TaskRecord.to_dict）",
+      "properties": {
+        "schema_version": { "type": "integer", "const": 1 },
+        "task_id": { "type": "string" },
+        "operation": { "type": "string", "enum": ["plan", "run"] },
+        "workspace": { "type": "string" },
+        "suite": { "type": "string" },
+        "state": {
+          "type": "string",
+          "enum": ["created", "running", "blocked", "completed", "failed", "cancelled"]
+        },
+        "scope": { "type": "object" },
+        "execution": { "type": "object" },
+        "authorization": { "type": "object" },
+        "progress": {
+          "type": "object",
+          "description": "run 执行后由引擎回填，可能包含 total/ready/executed/passed/failed。plan 操作通常为空。"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "status": { "type": "string", "enum": ["completed", "blocked", "failed"] },
+            "exit_code": { "type": "integer" },
+            "log_path": { "type": "string" },
+            "error": { "type": "string" }
+          }
+        },
+        "error": { "type": "string" },
+        "attempts": { "type": "integer" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["schema_version", "task_id", "operation", "workspace", "suite", "state"]
+    }
+  },
+  "cliExitCodes": {
+    "0": "created / running / completed / cancelled",
+    "1": "failed",
+    "2": "参数或校验错误（TaskValidationError / TaskTransitionError / TaskNotFoundError 等）",
+    "4": "blocked"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "_comment": "MiCo Issue metadata 建议键。只写标识与受控引用，不写秘密、不写完整报告正文。参见 ../contracts/security-boundary.md。",
+  "crosscheck_task_id": "mico-poc-readonly-001",
+  "crosscheck_project": "purchase",
+  "crosscheck_suite": "purchase-p0",
+  "crosscheck_environment": "test",
+  "crosscheck_run_id": "suite_purchase-p0_20261113_120000",
+  "crosscheck_report": "<受控报告链接或 workspace 内路径引用，非报告正文>",
+  "crosscheck_cleanup_status": "clean"
+}

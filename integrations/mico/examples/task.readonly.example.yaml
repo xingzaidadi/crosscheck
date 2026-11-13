@@ -1,0 +1,24 @@
+# 只读 Crosscheck 任务模板（MiCo 阶段一 PoC 使用）
+#
+# operation: plan —— 对 canonical 套件评分并生成执行计划，不触碰任何实时系统，
+#                     是最安全的只读验证路径。将 operation 改为 run 才会执行实时用例。
+#
+# 约束（与引擎一致，详见 ../contracts/task-result.schema.json）：
+#   - task_id 必须匹配 ^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$ 且在该 workspace 内唯一
+#   - operation 只能是 plan 或 run
+#   - workspace 为绝对路径，须与执行时 --workspace 一致
+#   - suite 为 workspace 内 canonical 套件目录（含 suite.yaml），不得越出 workspace
+
+task_id: mico-poc-readonly-001
+operation: plan
+workspace: C:\crosscheck-workspaces\purchase
+suite: suites\purchase-p0
+scope:
+  cases: []            # 空 = 全部；或填用例 id 列表，如 [TC26, TC34]
+execution:
+  pilot_size: 3
+  ensure_login: false  # 只读 plan 不需要登录
+  resume: true         # false 才会传 --no-resume
+authorization:
+  confirmed_non_production: true   # 声明性元数据；真正门禁由 suite.yaml 与引擎写入门禁强制
+  allow_write: false               # 只读，不允许写入
