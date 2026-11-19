@@ -1,0 +1,65 @@
+# 用例路由(业务数据):把散文用例路由到一个"功能",框架据此自动建模。
+# 复制到 <workspace>/config/case_routes.yaml 改值。换业务只改这里 + 补该功能的映射/抓包,
+# core/ 一行不改。路由优先用 case_id 精确命中,再按模块/标题关键词兜底。
+#
+# 两类功能:
+#   查询类(列表/检索/详情):配 feature + db;框架用已 probe+人审的 query_mapping/<feature>.json
+#            + 抓包样本现调接口对账(自证一致)。先 run_verify probe 产映射再人审。
+#   写入类(新建/提交/暂存/状态流转):配 write 块;接口/提交体可由 probe 录一次自动得(pick_write_call),
+#            清理子表/标记字段框架按库 schema/模板自动推导,route 只需给 table + 预期状态。
+
+defaults:                         # 所有用例共享;单条可覆盖
+  db: <只读/读写库名,对应 config/db.yaml databases.<名>>
+  base_url: https://<你的站点>
+  session: <workspace>/.auth/<site>.json
+
+by_case_id:
+
+  # ── 查询类示例 ──
+  CASE-LIST-1:
+    feature: <功能名>            # 对应 knowledge_base/query_mapping/<功能名>.json(+ captures/<功能名>_picked.json)
+    # mode: reconcile           # 有 query_mapping 时可省;路由会自动判为对账
+
+  # ── 写入类示例(造数→验库→清理)──
+  CASE-CREATE-1:
+    feature: <功能名>
+    mode: write
+    write:
+      endpoint: {method: POST, url: /<svc>/api/<资源>/create}   # 可由 probe 录一次自动得
+      template: <workspace>/captures/<功能名>_template.json       # 提交体模板(probe 产出或抓包)
+      drop_fields: [id, <服务端生成的编号>, status, version]       # 去掉服务端赋的字段
+      item_key: itemList                                         # 子项列表字段(可选)
+      item_drop: [id, <子项编号>]
+      marker_fields: [<标题/名称字段>]                            # 注入 {{marker}};标题类字段框架也会自动识别
+      table: <主表>                                              # 验库/清理/自发现目标
+      parent_key: <主表与子表共用的单号列>
+      parent_marker_col: <主表里承载 marker 的列(如 title)>
+      assert_status: {column: <状态列>, value: <期望状态>}
+      # cleanup_children 不写:框架按 schema 自动推导(同模块前缀 + 含 parent_key 列的表)
+      verify_poll: {timeout_s: 10, interval_s: 2}                # 异步翻转才需要
+      diff_full_scan: false                                     # 级联写入免整库 diff 误报
+
+  # ── 状态流转示例(先造前置状态单,再对它操作)──
+  CASE-TRANSITION-1:
+    feature: <功能名>
+    mode: write
+    write:
+      template: <workspace>/captures/<功能名>_template.json
+      marker_fields: [<标题字段>]
+      data_prep:                                                # 前置:造一张某状态的单,抓它的单号/版本
+        - method: POST
+          url: /<svc>/api/<资源>/draft
+          body_set: {<编号字段>: "", version: 1}
+          capture: {bizCode: data.<编号字段>, bizVer: data.version}
+      endpoint: {method: POST, url: /<svc>/api/<资源>/submit}
+      body_set: {<编号字段>: "{{bizCode}}", version: "{{bizVer}}"}  # 主动作按抓到的单号操作该单
+      table: <主表>
+      parent_key: <单号列>
+      parent_marker_col: <标题列>
+      assert_where: "<单号列>='{{bizCode}}'"
+      assert_status: {column: <状态列>, value: <流转后状态>}
+      # 如需一键审批:加 approve: {method,url,base_url,session,body,business_key_from,expect}
+      # 如需异步事件断言:在 assertions.events 配 db(事件表)或 http(通知网关)源
+
+by_keyword:
+  - {match: [列表, 检索, 分页], feature: <查询功能名>}

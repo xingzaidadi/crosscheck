@@ -3,7 +3,7 @@
 验 UI 层不是只认 hi-v5:detect_ui_kit 认出 'ant'、page_probe 按值把 DOM 列绑定到接口字段、
 discover_fields 枚举 antd 表单控件。全程 core 一行不改。
 
-需 Playwright;装不上则跳过(不算失败)。跑:python tests/test_second_system_ui.py
+需 Playwright 和 Chromium；发布回归缺少依赖时必须失败。跑:python tests/test_second_system_ui.py
 """
 from __future__ import annotations
 
@@ -69,8 +69,8 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     try:
         from playwright.sync_api import sync_playwright  # noqa: F401
-    except Exception:
-        print("Playwright 未安装,跳过(不算失败)"); return
+    except Exception as exc:
+        raise AssertionError(f"Playwright/Chromium 不可用，UI 发布门禁失败: {exc}") from exc
     from core.bootstrap import detect_ui_kit
     from core.discovery.page_probe import probe_page_extract
 

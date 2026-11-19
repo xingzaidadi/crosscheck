@@ -85,16 +85,32 @@ class DbClient:
         """只读连接的方言名(sqlite / mysql …)。"""
         return self._ro.dialect.name
 
+    def _metadata_query(self, kind: str, table: str | None = None):
+        """Return dialect-specific metadata SQL, without pretending all DBs are MySQL."""
+        dialect = self.dialect
+        if dialect == "sqlite":
+            if kind == "tables":
+                return "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'", {}
+            return f"PRAGMA table_info({table})", {}
+        if dialect == "mysql":
+            if kind == "tables":
+                return ("SELECT TABLE_NAME AS name FROM INFORMATION_SCHEMA.TABLES "
+                        "WHERE TABLE_SCHEMA = DATABASE()"), {}
+            return ("SELECT COLUMN_NAME AS name FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t ORDER BY ORDINAL_POSITION"), {"t": table}
+        if dialect == "postgresql":
+            if kind == "tables":
+                return ("SELECT table_name AS name FROM information_schema.tables "
+                        "WHERE table_schema = current_schema()"), {}
+            return ("SELECT column_name AS name FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() AND table_name = :t "
+                    "ORDER BY ordinal_position"), {"t": table}
+        raise RuntimeError(f"database dialect {dialect!r} requires a reviewed database plugin")
+
     def tables(self) -> list[str]:
         """列出库里所有表名。diff 安全网用它做整库前后对比。"""
-        dialect = self._ro.dialect.name
-        if dialect == "sqlite":
-            rows = self.query(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-            return [r["name"] for r in rows]
-        rows = self.query(
-            "SELECT TABLE_NAME AS name FROM INFORMATION_SCHEMA.TABLES "
-            "WHERE TABLE_SCHEMA = DATABASE()")
+        sql, params = self._metadata_query("tables")
+        rows = self.query(sql, params)
         return [r["name"] for r in rows]
 
     def row_count(self, table: str) -> int:
@@ -105,16 +121,11 @@ class DbClient:
     def columns(self, table: str) -> list[str]:
         """列出表的字段名。自动建模把接口参数往这些列上匹配。"""
         validate_sql_identifier(table, label="table")
-        dialect = self._ro.dialect.name
-        if dialect == "sqlite":
+        if self.dialect == "sqlite":
             rows = self.query(f"PRAGMA table_info({table})")
             return [r["name"] for r in rows]
-        # MySQL / 多数库走 INFORMATION_SCHEMA
-        rows = self.query(
-            "SELECT COLUMN_NAME AS name FROM INFORMATION_SCHEMA.COLUMNS "
-            "WHERE TABLE_NAME = :t ORDER BY ORDINAL_POSITION",
-            {"t": table},
-        )
+        sql, params = self._metadata_query("columns", table)
+        rows = self.query(sql, params)
         return [r["name"] for r in rows]
 
     def close(self) -> None:

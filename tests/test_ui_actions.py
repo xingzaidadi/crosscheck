@@ -39,6 +39,36 @@ HTML = """<!doctype html><html><head><meta charset=utf-8></head><body>
 </script></body></html>"""
 
 
+def test_selector_click_is_supported_without_text():
+    class Locator:
+        first = None
+
+        def __init__(self):
+            self.first = self
+
+        def wait_for(self, **kwargs):
+            return None
+
+        def scroll_into_view_if_needed(self, **kwargs):
+            return None
+
+        def click(self, **kwargs):
+            return None
+
+    class Page:
+        def __init__(self):
+            self.seen = []
+
+        def locator(self, selector):
+            self.seen.append(selector)
+            return Locator()
+
+    page = Page()
+    result = replay(page, [{"action": "click", "selector": ".row-link"}])
+    assert result[0]["ok"] is True
+    assert page.seen == [".row-link"]
+
+
 def main():
     d = tempfile.mkdtemp()
     page_path = os.path.join(d, "form.html").replace("\\", "/")

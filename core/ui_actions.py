@@ -16,6 +16,8 @@ page_model(存 workspace/knowledge_base/page_model/<feature>.json):一串语义�
 """
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
 from typing import Any
 
 from core.discovery.fields import DEFAULT_UI
@@ -57,13 +59,36 @@ def _search_select(page, a, ui) -> None:
     label = a.get("label", "")
     value = a.get("value")
     idx = int(a.get("index", 0) or 0)
-    # 定位触发点:优先 placeholder 含 label,退回 form-item 内的 picker/select 容器
+    # 定位触发点:优先 placeholder 含 label,退回当前可见业务项；同页可能有隐藏/虚拟表单副本。
     trig = page.locator(f'[placeholder*="{label}"]')
-    if not trig.count():
-        trig = _item(page, label, ui).locator('[class*="picker"],[class*="select"],input').first
+    candidates = []
+    if trig.count():
+        candidates.append(trig)
+    try:
+        item = _item(page, label, ui)
+        if item.count():
+            candidates.append(item.locator('[class*="picker"],[class*="select"],input,button:visible'))
+            candidates.append(item)
+    except Exception:
+        pass
+    # HiUI editable grids render the field label in a line-summary cell rather
+    # than a form-item; use the nearest visible cell as a last deterministic fallback.
+    text_label = page.get_by_text(str(label), exact=True)
+    if text_label.count():
+        candidates.append(text_label)
+        candidates.append(text_label.last.locator("xpath=ancestor::td[1]"))
+    last = None
+    for candidate in candidates:
+        try:
+            loc = candidate.last if hasattr(candidate, "last") else candidate
+            loc.wait_for(state="visible", timeout=1200)
+            loc.scroll_into_view_if_needed(timeout=1000)
+            loc.click(timeout=2500)
+            break
+        except Exception as exc:  # noqa: BLE001
+            last = exc
     else:
-        trig = trig.first
-    trig.click(timeout=4000)
+        raise RuntimeError(f"找不到可见搜索选择器『{label}』: {str(last)[:120]}")
     page.wait_for_timeout(600)
     # 可见弹层(hi-v5 弹层挂 body);取最后一个可见的下拉/picker 弹层
     popper = page.locator(
@@ -140,6 +165,8 @@ def _click(page, step, ui) -> None:
     故依次自愈:role+name → text 精确 → text 模糊 → `:has-text` 第一个可见可点元素。"""
     name = step.get("name") or step.get("text") or ""
     attempts = []
+    if step.get("selector"):
+        attempts.append(lambda: page.locator(str(step["selector"])).first)
     if step.get("role") and step.get("name"):
         attempts.append(lambda: page.get_by_role(step["role"], name=step["name"]).first)
     if step.get("text"):
@@ -164,11 +191,12 @@ def _click(page, step, ui) -> None:
         except Exception as e:  # noqa: BLE001  试下一个定位策略
             last = e
     # 兜底:强制点第一个可见同名元素(越过 antd 遮挡层/动画态)
-    try:
-        page.locator(f":is(button,a,[role=button]):has-text('{name}'):visible").first.click(timeout=2000, force=True)
-        return
-    except Exception:  # noqa: BLE001
-        pass
+    if name:
+        try:
+            page.locator(f":is(button,a,[role=button]):has-text('{name}'):visible").first.click(timeout=2000, force=True)
+            return
+        except Exception:  # noqa: BLE001
+            pass
     raise RuntimeError(f"点击失败(所有定位策略落空): {name!r} · {str(last)[:80]}")
 
 
@@ -203,9 +231,86 @@ def replay(page, actions: list[dict], ui: dict | None = None, llm_resolver=None)
                 else:
                     loc = page.locator(a["selector"]).first
                 loc.fill(str(a.get("value", "")), timeout=3000)
+            elif act == "upload":
+                source = Path(str(a.get("path") or "")).resolve()
+                if not source.is_file():
+                    raise FileNotFoundError(source)
+                if a.get("selector"):
+                    loc = page.locator(a["selector"]).first
+                elif a.get("label"):
+                    loc = _item(page, a["label"], ui).locator('input[type="file"]').first
+                else:
+                    loc = page.locator('input[type="file"]').first
+                loc.set_input_files(str(source), timeout=5000)
+                row_extra = {"file": str(source), "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                             "size": source.stat().st_size}
+            elif act == "download":
+                output_dir = Path(str(a.get("output_dir") or ".")).resolve()
+                output_dir.mkdir(parents=True, exist_ok=True)
+                with page.expect_download(timeout=int(a.get("timeout_ms") or 15000)) as info:
+                    _click(page, a, ui)
+                download = info.value
+                suggested = download.suggested_filename
+                target_path = output_dir / str(a.get("filename") or suggested)
+                download.save_as(str(target_path))
+                if a.get("expected_name") and str(a["expected_name"]) != suggested:
+                    raise AssertionError(f"download filename: {suggested!r}")
+                minimum_size = int(a.get("min_size") or 1)
+                if target_path.stat().st_size < minimum_size:
+                    raise AssertionError(f"download size below {minimum_size}")
+                expected_hash = str(a.get("sha256") or "")
+                actual_hash = hashlib.sha256(target_path.read_bytes()).hexdigest()
+                if expected_hash and expected_hash != actual_hash:
+                    raise AssertionError("download sha256 mismatch")
+                row_extra = {"file": str(target_path), "sha256": actual_hash,
+                             "size": target_path.stat().st_size}
+            elif act == "frame_click":
+                frame = page.frame_locator(str(a["frame"]))
+                name = str(a.get("name") or a.get("text") or "")
+                locator = frame.get_by_role(str(a.get("role") or "button"), name=name,
+                                            exact=bool(a.get("exact", True))).first
+                locator.click(timeout=int(a.get("timeout_ms") or 5000))
+            elif act == "frame_fill":
+                frame = page.frame_locator(str(a["frame"]))
+                locator = frame.locator(str(a["selector"])).first
+                locator.fill(str(a.get("value") or ""), timeout=int(a.get("timeout_ms") or 5000))
+            elif act == "press":
+                locator = page.locator(str(a.get("selector") or "body")).first
+                locator.press(str(a.get("key") or "Enter"), timeout=int(a.get("timeout_ms") or 5000))
+            elif act == "hover":
+                page.get_by_text(str(a.get("text") or ""), exact=False).first.hover(timeout=5000)
+            elif act in {"check", "uncheck"}:
+                locator = resolve_input(page, str(a.get("label") or ""), ui, llm_resolver)[0]
+                if locator is None:
+                    raise RuntimeError(f"找不到复选框字段『{a.get('label')}』")
+                if act == "check":
+                    locator.check(timeout=5000)
+                else:
+                    locator.uncheck(timeout=5000)
+            elif act == "wait_for":
+                if a.get("text"):
+                    locator = page.get_by_text(str(a["text"]), exact=bool(a.get("exact", False))).first
+                else:
+                    locator = page.locator(str(a.get("selector") or "body")).first
+                locator.wait_for(state=str(a.get("state") or "visible"),
+                                 timeout=int(a.get("timeout_ms") or 10000))
+            elif act == "scroll":
+                locator = page.locator(str(a.get("selector") or "body")).first
+                locator.scroll_into_view_if_needed(timeout=int(a.get("timeout_ms") or 5000))
+            elif act == "assert_visible":
+                if a.get("text"):
+                    loc = page.get_by_text(str(a["text"]), exact=bool(a.get("exact", False))).first
+                else:
+                    loc = page.locator(str(a["selector"])).first
+                loc.wait_for(state="visible", timeout=int(a.get("timeout_ms") or 5000))
+            elif act == "wait_ms":
+                page.wait_for_timeout(int(a.get("ms") or 1000))
             else:
                 raise RuntimeError(f"未知动作 {act}")
             row = {"action": act, "target": target, "ok": True, "error": ""}
+            if "row_extra" in locals():
+                row.update(row_extra)
+                del row_extra
             if strat and strat != "form-item":   # 走了备用策略 = 发生自愈,标出来供回写知识待审
                 row["heal"] = strat
             results.append(row)

@@ -24,6 +24,8 @@ class LoginConfig:
     liveness_url: str | None = None          # 判活打开的页;空则用 base_url
     logged_in_selector: str | None = None    # 该选择器存在即判"已登录";空则看是否被打回 /login
     steps: list[dict] = field(default_factory=list)  # B 模式的声明式填表步骤
+    mfa: dict[str, Any] = field(default_factory=dict)
+    session_ttl_minutes: int | None = None
 
 
 @dataclass
@@ -50,6 +52,8 @@ def _coerce(data: dict[str, Any], source: Path) -> Profile:
         liveness_url=login_raw.get("liveness_url"),
         logged_in_selector=login_raw.get("logged_in_selector"),
         steps=login_raw.get("steps") or [],
+        mfa=login_raw.get("mfa") or {},
+        session_ttl_minutes=login_raw.get("session_ttl_minutes"),
     )
     db_raw = data.get("db") or {}
     return Profile(

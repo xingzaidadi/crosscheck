@@ -19,6 +19,11 @@ __pycache__/
 venv/
 /dist/
 *.zip
+/build/
+*.egg-info/
+.coverage
+.coverage.*
+htmlcov/
 
 # uicapture 离线测试的生成产物(截图/视频/trace),不提交
 tests/fixtures/_uicap_out/

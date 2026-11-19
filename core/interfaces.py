@@ -54,6 +54,7 @@ class ActionResult:
     ok: bool
     api_status: int | None = None          # 截获的提交接口 HTTP 码
     api_body: Any = None                   # 截获的响应体
+    api_request: dict[str, Any] = field(default_factory=dict)  # 脱敏后的请求证据
     page_texts: list[str] = field(default_factory=list)  # 页面可见文案/标志
     error: str | None = None
 
@@ -117,3 +118,5 @@ class CaseResult:
     audit: dict = field(default_factory=dict)     # 审计:声明vs实际/UI触发调用/三源一致/落盘路径
     required_assertions: list[str] = field(default_factory=list)
     executed_assertions: list[str] = field(default_factory=list)
+    failure_class: str = ""  # canonical taxonomy; empty means PASS/no failure
+    phase_verdict: str = ""  # UI_PASS/UI_FAIL/API_PASS/DB_PASS/CROSS_*; additive to legacy verdict

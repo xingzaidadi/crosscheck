@@ -7,14 +7,38 @@ description: 使用 crosscheck 接入、配置、探测和测试业务系统，�
 
 把 Agent 作为编排者，把仓库中的确定性 CLI 作为执行工具。不要让模型替代测试引擎做断言、数据库清理或结果判定。
 
+对于 URL + 原始用例的 UI-first 请求，优先使用 `crosscheck ui-run --url <url> --cases <file> --workspace <workspace>`。该入口按 URL 自动发现 workspace profile、业务 Skill 和 session；有有效 profile 时复用/续期登录态。业务知识以 workspace `business_skills/<skill-id>/manifest.yaml` 为入口，Skill 包引用的页面、动作、断言、工作流和业务规则须按版本与证据治理。不要把系统专属规则塞进通用 Crosscheck Skill。
+
 默认唯一业务执行入口是 `run_suite.py`。Excel/CSV/JSON/case-gen YAML 只能先导入 canonical suite；旧 `run_batch.py --excel` 仅用于兼容和迁移诊断，不得用于新套件正式验收。
 
 ## 执行模式
+
+### UI-first 默认决策
+
+当用户明确要求“只测 UI”“先做 UI”“UI-first”时，必须先进入 UI-only phase，不能沿用三层默认执行器：
+
+1. 先读取已有 workspace/profile/session/canonical suite/UI bindings 的存在性；已有有效 session 必须直接复用，不能先要求用户重新登录。
+2. 只读 UI 用例不应因 API/DB oracle、跨系统数据总数或后端对账缺口而阻塞；这些层标记 `DEFERRED`/`NOT_COVERED`。
+3. UI-only 执行器不得打开数据库、调用 DB reconcile、执行 API 专用断言或执行提交/审批/删除动作。
+4. 页面触发的请求可以作为“页面渲染证据”保存，但不能把抓到请求等同于 API 验收通过。
+5. 只有 UI binding 缺失、页面入口缺失、UI replay 失败、UI oracle 不完整、角色/登录态缺失等 UI 自身问题，才阻塞 UI 用例。
+6. 首轮默认最多执行 3 条低风险只读 UI 用例；Pilot 通过后才扩大到当前 UI READY 集合。
+
+在开始任何登录动作前，检查 `workspace/.auth`、profile session 配置和浏览器现有 session。只有确认 session 不存在或已失效，且执行确实需要人工认证时，才请求用户登录。
+
+用户只要求先测 UI 时，优先使用产品入口：
+
+```text
+crosscheck ui-pilot --workspace <workspace> --cases <原始用例文件>
+```
+
+该入口自动发现匹配的 canonical suite，筛选低风险只读 UI 用例，默认最多执行 3 条，复用已有 session，保存截图/录像/HTML 报告，并将 API/DB 标记为 deferred。只有用户明确指定 `--only` 时才绕过自动候选筛选；写入、提交、审批、删除、上传等用例不会进入默认 Pilot。
 
 默认使用 **pipeline mode**，而不是逐步确认模式。Agent 应：
 
 - 开始时用一句话说明流水线阶段和当前假设；
 - 自动读取已有 profile、用例、readiness、登录态和配置的**存在性**，不输出秘密；
+- 任何需要询问业务规则、角色、操作方法或环境事实的问题，必须先执行知识检索和问题指纹检查；已有 approved 知识时禁止重复询问，并把 knowledge_id 绑定到执行计划；
 - 对安全的只读步骤连续执行，不在每个步骤结束后等待用户；
 - pilot 达到安全扩批条件后，立即批量执行所有当前 READY 用例，不询问“是否继续”；
 - 遇到多个可选项时选择最小风险、最小范围、可回滚的默认值；
@@ -83,6 +107,8 @@ description: 使用 crosscheck 接入、配置、探测和测试业务系统，�
 - 不需要在对话中暴露秘密。
 
 只有硬门禁无法从上下文或本地资料确认时，才暂停并提问。提问应一次覆盖所有当前阻塞项；用户回答后继续流水线，不重新从第一阶段开始。
+
+用户回答阻塞问题后，不得只把答案留在对话中。必须记录为 pending knowledge 并展示结构化摘要；经明确确认后审批为 approved。后续同作用域问题强制复用。若新答案与已批准知识冲突，标记 conflict 并停止相关正式验收，不能静默覆盖。
 
 ### 3. 检查本地安装（自动执行）
 

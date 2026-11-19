@@ -18,7 +18,7 @@ except Exception:
     pass
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.ui_record import events_to_page_model  # noqa: E402
+from core.ui_record import events_to_page_model, save_operating_procedure  # noqa: E402
 from core.ui_actions import replay  # noqa: E402
 
 HTML = """<!doctype html><html><head><meta charset=utf-8></head><body>
@@ -52,6 +52,13 @@ def main():
         {"action": "date", "label": "交付日期", "value": "2026-11-20"},
     ], model
     print("    ✓ 事件→page_model: 文本去重、下拉、点选(连点去重+忽略长文本)、日期识别 正确")
+
+    from core.workspace import set_workspace
+    knowledge_workspace = tempfile.mkdtemp()
+    set_workspace(knowledge_workspace)
+    procedure_path = save_operating_procedure("items", "/items", model)
+    assert procedure_path.is_file() and "operating_procedures" in str(procedure_path)
+    print("    ✓ 成功操作轨迹已保存为待审核 operating_procedure 知识")
 
     # 2) round-trip:蒸馏出的带标签步骤交给 replay 跑 mock 页
     d = tempfile.mkdtemp()

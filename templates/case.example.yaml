@@ -35,9 +35,11 @@ cleanup:
   targets: []
 evidence:
   required: [screenshot, api_request, api_response, db_result]
+knowledge_refs: []
 approval:
   status: draft
   content_hash: ''
+  knowledge_hashes: {}
 execution:
   # status 改为 ready 前必须补齐并重新计算 approval.content_hash。
   # 每个 assertions.*[].id 都要绑定到实际 proof，不能只写 layer。

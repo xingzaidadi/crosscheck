@@ -56,6 +56,7 @@ def verify_display(rendered_rows: list[dict], api_response: dict, ui_cfg: dict) 
     if isinstance(api_rows, dict):     # 详情类:接口 data 是单对象 → 当作一行
         api_rows = [api_rows]
     res = UiResult(consistent=True)
+    value_maps = ui_cfg.get("value_maps") or {}
 
     expectation = ui_cfg.get("cardinality") or {}
     min_rows = expectation.get("min_rows")
@@ -82,11 +83,13 @@ def verify_display(rendered_rows: list[dict], api_response: dict, ui_cfg: dict) 
         for dom_field, api_field in dom_to_api.items():
             dv = _norm(dom.get(dom_field))
             av = _norm(_dig(api, api_field) if "." in api_field else (api.get(api_field) if isinstance(api, dict) else None))
+            mapped_api = _norm((value_maps.get(dom_field) or {}).get(av, av))
             # 相等;或接口空值+页面占位符;或(两者非空且)接口值出现在页面文本里(页面可能带单位/名称)即算显示正确
-            ok = (dv == av
+            ok = (dv == mapped_api
                   or (av == "" and dv.lower() in _PLACEHOLDERS)
-                  or (bool(av) and bool(dv) and (av in dv or dv in av)))
-            res.pairs.append({"row": i + 1, "field": dom_field, "page": dv, "api": av, "ok": ok})
+                  or (bool(mapped_api) and bool(dv) and (mapped_api in dv or dv in mapped_api)))
+            res.pairs.append({"row": i + 1, "field": dom_field, "page": dv, "api": av,
+                              "normalized_api": mapped_api, "ok": ok})
             if not ok:
                 res.consistent = False
                 res.diffs.append(f"第{i + 1}行 {dom_field}: 页面='{dv}' vs 接口='{av}'")

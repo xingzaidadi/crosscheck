@@ -4,6 +4,8 @@
 固化日期：2026-11-12  
 用途：P0～P2 全部整改完成后的最终验收依据。后续实现不得通过降低本文件标准来宣称完成。
 
+每项结果必须记录 `verification_level`：`contract`、`local_e2e`、`external_ready` 或 `external_pass`。离线测试通过不等于真实业务系统通过，详见 `docs/IMPLEMENTATION_STATUS.md`。
+
 ## 产品定位
 
 Crosscheck 应成为面向企业 Web 业务系统的通用测试编排与跨层验证平台内核：

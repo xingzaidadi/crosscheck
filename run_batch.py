@@ -103,7 +103,11 @@ def _run_reconcile(spec: ExecSpec, case_dir: Path | None = None) -> tuple[Verdic
         return Verdict.ENV_ERROR, ["未配可用只读库,无法对账"], {
             **rep, "layers": [{"name": "连库", "ok": False, "note": "workspace/config/db.yaml 未配可用只读库"}]}
     try:
-        res = Reconciler(db, mapping).reconcile(api_params, api_resp)
+        reconcile_params = dict(api_params or {})
+        actor = (spec.raw or {}).get("actor") or (spec.ui or {}).get("current_user_id")
+        if actor:
+            reconcile_params["__current_user_id"] = actor
+        res = Reconciler(db, mapping).reconcile(reconcile_params, api_resp)
     except Exception as e:  # noqa: BLE001  单条对账出错不拖垮整批
         return Verdict.ENV_ERROR, [f"对账执行异常: {e}"], {
             **rep, "layers": [{"name": "接口 ↔ 库 对账", "ok": False,
@@ -156,7 +160,7 @@ def _skip(spec, t0, detail, verdict=Verdict.SKIP, layer="状态") -> CaseResult:
 
 
 def execute(spec: ExecSpec, dry_run: bool, run_dir: Path, no_cleanup: bool = False,
-            allow_workspace_scripts: bool = False) -> CaseResult:
+            allow_workspace_scripts: bool = False, *, phase: str = "all") -> CaseResult:
     t0 = time.time()
     case_dir = run_dir / "cases" / spec.case_id
 
@@ -215,9 +219,11 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path, no_cleanup: bool = Fal
                 return ui_check.run_ui_write_spec(spec, db, run_dir, no_cleanup=no_cleanup)
             finally:
                 db.close()
+        if phase == "ui":
+            return ui_check.run_ui_spec(spec, None, run_dir, phase="ui")
         db = _open_db(spec.db)                   # UI 读:库↔接口↔页面 三层校验
         try:
-            return ui_check.run_ui_spec(spec, db, run_dir)
+            return ui_check.run_ui_spec(spec, db, run_dir, phase=phase)
         finally:
             if db is not None:
                 db.close()
@@ -254,13 +260,14 @@ def execute(spec: ExecSpec, dry_run: bool, run_dir: Path, no_cleanup: bool = Fal
 
 
 def run_specs(specs, dry_run, run_dir, workers: int = 1, no_cleanup: bool = False, pace: float = 0,
-              allow_workspace_scripts: bool = False):
+              allow_workspace_scripts: bool = False, phase: str = "all"):
     """调度执行:只读(reconcile)类可并发(互不影响);写入/UI 串行(快照需安静库)。保序返回。"""
     if workers <= 1:
         out = []
         for i, s in enumerate(specs, 1):
             print(f"  [{i}/{len(specs)}] {s.case_id} {s.title[:40]} …", flush=True)
-            out.append(finalize_result(s, execute(s, dry_run, run_dir, no_cleanup, allow_workspace_scripts)))
+            out.append(finalize_result(s, execute(s, dry_run, run_dir, no_cleanup, allow_workspace_scripts),
+                                       phase=phase))
         return out
     results = [None] * len(specs)
     read = [i for i, s in enumerate(specs) if s.mode == "reconcile"]
@@ -268,13 +275,13 @@ def run_specs(specs, dry_run, run_dir, workers: int = 1, no_cleanup: bool = Fals
     print(f"  并发只读 {len(read)} 条(workers={workers})+ 串行写入/UI {len(other)} 条")
     for i, r in zip(read, run_pool([specs[i] for i in read],
                                    lambda s: finalize_result(s, execute(s, dry_run, run_dir, no_cleanup,
-                                                                       allow_workspace_scripts)), workers)):
+                                                                       allow_workspace_scripts), phase=phase), workers)):
         results[i] = r
     import time as _t
     for n, i in enumerate(other):
         print(f"  [串行] {specs[i].case_id} {specs[i].title[:40]} …", flush=True)
         results[i] = finalize_result(specs[i], execute(specs[i], dry_run, run_dir, no_cleanup,
-                                                       allow_workspace_scripts))
+                                                       allow_workspace_scripts), phase=phase)
         # 节奏控制:写入/BPM 类用例背靠背会打爆共享环境(submit 400、BPM 异步滞后、db_wait 超时),
         # 条间留间隔让环境/BPM 跟上;最后一条不等。pace=0 关闭(默认)。
         if pace and n < len(other) - 1:
@@ -282,7 +289,47 @@ def run_specs(specs, dry_run, run_dir, workers: int = 1, no_cleanup: bool = Fals
     return results
 
 
-def finalize_result(spec: ExecSpec, result: CaseResult) -> CaseResult:
+def finalize_result(spec: ExecSpec, result: CaseResult, *, phase: str = "all") -> CaseResult:
+    from core.failure_class import classify_verdict
+    if not result.failure_class:
+        blocked_category = str((result.report or {}).get("blocking_category") or "")
+        category = classify_verdict(result.verdict.value, blocked_category=blocked_category,
+                                    cleanup_ok=result.cleanup_ok)
+        if category:
+            result.failure_class = category.value
+    dependencies = list((spec.raw or {}).get("knowledge_dependencies") or [])
+    if dependencies:
+        result.report.setdefault("knowledge_dependencies", dependencies)
+    _attach_layer_aggregate(result)
+    if phase == "ui" and spec.mode == "ui":
+        layers = list(result.report.get("layers") or [])
+        ui_layers = [layer for layer in layers if any(token in str(layer.get("name") or "")
+                    for token in ("UI", "页面", "字段", "可见", "校验"))]
+        ui_failed = any(layer.get("ok") is False for layer in ui_layers)
+        ui_observed = any(layer.get("ok") is not None for layer in ui_layers)
+        if result.verdict is Verdict.ENV_ERROR or not ui_observed:
+            result.phase_verdict = "UI_INCONCLUSIVE"
+        else:
+            result.phase_verdict = "UI_FAIL" if ui_failed else "UI_PASS"
+        layer_names = [str(layer.get("name") or "") for layer in layers]
+        non_ui_failures = [layer for layer in layers
+                           if layer.get("ok") is False and not any(
+                               token in str(layer.get("name") or "")
+                               for token in ("UI", "页面", "字段", "可见", "校验"))]
+        if result.phase_verdict == "UI_PASS" and result.verdict is Verdict.FAIL and non_ui_failures:
+            result.verdict = Verdict.PASS
+            result.failure_class = ""
+            result.details = [detail for detail in result.details
+                              if not any(token in detail for token in ("库", "DB", "oracle"))]
+        result.report["phase_result"] = {
+            "phase": "ui", "verdict": result.phase_verdict,
+            "ui": "FAIL" if ui_failed else "PASS" if ui_observed else "INCONCLUSIVE",
+            "api": "OPTIONAL" if any("接口" in name for name in layer_names) else "NOT_COVERED",
+            "db": "OPTIONAL" if any("库" in name for name in layer_names) else "NOT_COVERED",
+            "deferred_layers": ["api", "db"],
+            "deferred_evidence": [layer.get("name") for layer in non_ui_failures],
+        }
+    _attach_v2_oracles(spec, result)
     required = list((spec.raw or {}).get("assertion_ids") or [])
     if not required:
         return result
@@ -294,11 +341,98 @@ def finalize_result(spec: ExecSpec, result: CaseResult) -> CaseResult:
             executed.add(assertion_id)
     result.required_assertions = required
     result.executed_assertions = sorted(executed)
+    coverage = len(result.executed_assertions) / len(required) if required else 1.0
+    result.report.setdefault("technical_execution", {
+        "browser_opened": bool(result.report.get("evidence") or result.report.get("ui_evidence")),
+        "actions_replayed": bool(result.report.get("actions") or result.report.get("action_results")),
+        "technical_verdict": result.phase_verdict or result.verdict.value,
+    })
+    result.report["business_acceptance"] = {
+        "required_assertions": required,
+        "executed_assertions": result.executed_assertions,
+        "assertion_coverage": coverage,
+        "verdict": "PASS" if coverage == 1.0 and result.verdict is Verdict.PASS else "INCONCLUSIVE"
+        if coverage < 1.0 else "FAIL" if result.verdict is Verdict.FAIL else "INCONCLUSIVE",
+    }
     missing = sorted(set(required) - executed)
-    if missing and result.verdict is Verdict.PASS:
+    if missing and result.verdict in {Verdict.PASS, Verdict.PARTIAL}:
         result.verdict = Verdict.PARTIAL
-        result.details.append(f"必需断言未执行:{missing}")
+        result.failure_class = "SPEC_ERROR"
+        assertion_texts = (spec.raw or {}).get("assertion_texts") or {}
+        missing_details = [assertion_texts.get(item) or item for item in missing]
+        missing_detail = f"必需断言未执行:{missing_details}"
+        if not any(detail.startswith("必需断言未执行:") for detail in result.details):
+            result.details.append(missing_detail)
+        if phase == "ui":
+            result.phase_verdict = "UI_INCONCLUSIVE"
+            phase_result = result.report.get("phase_result") or {}
+            phase_result["verdict"] = "UI_INCONCLUSIVE"
+            phase_result["reason"] = "canonical expected outcomes are not bound to executable proofs"
+            phase_result["assertion_coverage"] = len(executed) / len(required) if required else None
+            result.report["phase_result"] = phase_result
     return result
+
+
+def _attach_v2_oracles(spec: ExecSpec, result: CaseResult) -> None:
+    raw_v2 = (spec.raw or {}).get("raw_v2")
+    if not isinstance(raw_v2, dict) or not raw_v2.get("oracles"):
+        return
+    from core.oracle import poll
+    from core.case_v2 import wait_config
+    report = result.report or {}
+    evidence = report.get("oracle_evidence") or _oracle_evidence_from_report(report)
+    report["oracle_evidence"] = evidence
+    wait = wait_config(raw_v2)
+    outcome = poll(list(raw_v2.get("oracles") or []), lambda: report.get("oracle_evidence") or {},
+                   until=wait["until"], timeout_s=wait["timeout_s"], interval_s=wait["interval_s"])
+    report["oracle_results"] = outcome
+    result.report = report
+    if not outcome["passed"] and result.verdict is Verdict.PASS:
+        result.verdict = Verdict.FAIL
+        result.details.append("Case v2 oracle 未通过: " + ", ".join(outcome["failed"]))
+
+
+def _oracle_evidence_from_report(report: dict) -> dict:
+    return {
+        "api": report.get("api_response") or report.get("api") or {},
+        "ui": report.get("ui_evidence") or report.get("ui") or {},
+        "db": report.get("db_result") or report.get("db") or {},
+        "event": report.get("events") or {},
+        "manual": report.get("manual") or {},
+    }
+
+
+def _attach_layer_aggregate(result: CaseResult) -> None:
+    """Attach the independent layer verdict without replacing legacy report layers."""
+    from core.layered_execution import LayerResult, LayerVerdict, aggregate
+    raw_layers = list((result.report or {}).get("layers") or [])
+    if not raw_layers:
+        return
+    converted = []
+    for index, item in enumerate(raw_layers):
+        name = str(item.get("layer") or item.get("name") or f"layer-{index + 1}")
+        lower = name.lower()
+        if item.get("ok") is True:
+            verdict = LayerVerdict.PASS
+        elif item.get("ok") is False:
+            if "环境" in name or "env" in lower or result.verdict is Verdict.ENV_ERROR:
+                verdict = LayerVerdict.ENV_ERROR
+            elif "前置" in name or "prereq" in lower:
+                verdict = LayerVerdict.PREREQUISITE_FAILED
+            else:
+                verdict = LayerVerdict.FAIL
+        else:
+            verdict = LayerVerdict.INCONCLUSIVE
+        evidence = [str(value) for value in (item.get("evidence") or []) if value]
+        converted.append(LayerResult(name, verdict, evidence=evidence,
+                                     details=[str(item.get("note") or "")],
+                                     checkpoint=str(item.get("checkpoint") or "")))
+    required_config = (result.report or {}).get("required_layers")
+    if isinstance(required_config, dict):
+        required = required_config
+    else:
+        required = set(required_config or [item.layer for item in converted])
+    result.report["layer_aggregate"] = aggregate(converted, required)
 
 
 def main() -> int:
@@ -331,6 +465,8 @@ def main() -> int:
     ap.add_argument("--out", default=None, help="(已弃用)报告现固定输出到运行目录 report.html")
     ap.add_argument("--strict-walk", dest="strict_walk", action="store_true",
                     help="走单对账门禁:声明走单(act_via=ui/mode=ui)却未经页面驱动的用例,verdict 降级并标红(默认关,只打分不改判定)")
+    ap.add_argument("--ui-first", action="store_true",
+                    help="UI 阶段仅以 UI 绑定作为执行门槛;API/DB 作为可选增强证据")
     args = ap.parse_args()
 
     if args.strict_walk:
@@ -395,7 +531,8 @@ def main() -> int:
     print(f"[batch] 运行目录: {run_dir}")
 
     if args.excel:
-        suite_plan = build_suite_plan(raws, specs, source=str(Path(args.excel).resolve()))
+        suite_plan = build_suite_plan(raws, specs, source=str(Path(args.excel).resolve()),
+                                      phase="ui" if args.ui_first else "all")
         plan_json, plan_md = write_suite_plan(suite_plan, run_dir)
         print(f"[batch] 套件指纹: {suite_plan['suite_id']} · 可执行 {suite_plan['executable']}/{suite_plan['total']}"
               f" · 覆盖缺口 {suite_plan['coverage_gaps']} → {plan_md}")
@@ -414,7 +551,7 @@ def main() -> int:
     if args.no_cleanup and not args.dry_run:
         print("[batch] ⚠ --no-cleanup:写入/UI 类造数将保留不清理(保留现场)")
     results = run_specs(specs, args.dry_run, run_dir, args.workers, args.no_cleanup, args.pace,
-                        args.allow_workspace_scripts)
+                        args.allow_workspace_scripts, phase="ui" if args.ui_first else "all")
 
     reporter = Reporter()
     for r in results:

@@ -1,0 +1,42 @@
+# 新站点模板。复制到 <workspace>/profiles/<你的站点>.yaml 并改值。
+# (下划线开头的文件不被 list_profiles 列出,可用 _example.yaml 作私有草稿)
+#
+# 上线一个新站点 = 填这一个文件 + 在 <workspace>/config/db.yaml 加一条库
+#                 + (B 模式才要)在 <workspace>/config/credentials.yaml 加账号。
+# 内核代码(抓包/建模/对账)一行不用改。
+
+site: demo                               # 站点标识;登录态存 .auth/<site>.json,知识库按它隔离
+base_url: https://demo.example.com
+
+login:
+  # ── A 模式:人工登一次(推荐默认)。能过 2FA/验证码/SSO/跳转,最稳。 ──
+  mode: manual
+  login_url: https://demo.example.com/login
+  liveness_url: https://demo.example.com/home   # 打开它判断登录态是否还在;空则用 base_url
+  logged_in_selector: null                       # 填稳定的"已登录"标志更准;null 则看是否被打回 /login
+
+  # ── B 模式:声明式自动登录。把上面 mode 改成 credential,并填 steps。只适合简单账密页。 ──
+  # mode: credential
+  # steps:                                       # 按顺序执行;value_from 从 credentials.yaml sites.<site> 取
+  #   - fill:  { selector: "input[name=username]", value_from: username }
+  #   - fill:  { selector: "input[type=password]", value_from: password }
+  #   - click: { selector: "button:has-text('登录')" }
+  #   - wait_for: { selector: "text=欢迎" }       # 可选:等登录成功的标志出现
+
+db:
+  readonly: demo_db        # → <workspace>/config/db.yaml databases.<名>
+
+knowledge_base: knowledge_base   # 可改成每站点一套,如 knowledge_base_demo
+
+defaults:                  # probe 默认目标;CLI 传参可覆盖
+  feature: 列表检索
+  probe_url: https://demo.example.com/list
+  url_pattern: /api/list   # 只捕获 url 含该子串的接口;留空则抓全部 xhr/fetch
+  db: demo_db
+  table: some_table
+  pk: id
+  # 开浏览器方式(可被 --launch-mode 覆盖):
+  #   persistent(默认) 真 Chrome + 持久 profile(.auth/<site>_profile),登录态/缓存跨次保留,没开浏览器也稳
+  #   existing          连你已开的浏览器(Chrome 带 --remote-debugging-port 启动,再配 --cdp http://127.0.0.1:9222)
+  #   isolated          干净 Chromium(测试/CI 用)
+  launch_mode: persistent

@@ -88,17 +88,21 @@ def _provided_layers(spec: Any) -> list[str]:
     return list(dict.fromkeys(layers))
 
 
-def build_suite_plan(raws: list[Any], specs: list[Any], source: str = "") -> dict[str, Any]:
+def build_suite_plan(raws: list[Any], specs: list[Any], source: str = "", *, phase: str = "all") -> dict[str, Any]:
     by_id = {spec.case_id: spec for spec in specs}
     cases = []
     for raw in raws:
         item = classify_case(raw)
         spec = by_id.get(raw.case_id)
         provided = _provided_layers(spec) if spec else []
-        missing = [layer for layer in item["required_layers"] if layer not in provided]
+        phase_required = ["ui"] if phase == "ui" else item["required_layers"]
+        missing = [layer for layer in phase_required if layer not in provided]
         review = list(getattr(spec, "needs_review", []) or []) if spec else ["未生成规格"]
         item.update({
             "provided_layers": provided,
+            "phase": phase,
+            "phase_required_layers": phase_required,
+            "optional_layers": sorted(set(item["required_layers"]) - set(phase_required)),
             "missing_layers": missing,
             "mode": getattr(spec, "mode", "") if spec else "",
             "verify_status": getattr(spec, "verify_status", "") if spec else "",
@@ -123,6 +127,7 @@ def build_suite_plan(raws: list[Any], specs: list[Any], source: str = "") -> dic
         "executable": sum(case["executable"] for case in cases),
         "blocked": sum(bool(case["blocked"]) for case in cases),
         "coverage_gaps": sum(bool(case["missing_layers"]) for case in cases),
+        "phase": phase,
         "cases": cases,
     }
 

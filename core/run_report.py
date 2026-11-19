@@ -1,4 +1,4 @@
-"""
+﻿"""
 富测试报告渲染:一次运行一个文件夹,report.html 详列每条用例的
   做了什么 / 预期 / 实际 / 查了哪些库表 / 执行的 SQL / 数据样本 / 逐字段对比 / 截图 + 录像。
 
@@ -21,10 +21,10 @@ from pathlib import Path
 
 from core.interfaces import CaseResult, Verdict
 
-_LABEL = {Verdict.PASS: "通过", Verdict.FAIL: "失败", Verdict.ENV_ERROR: "环境错",
-          Verdict.ABORTED: "作废", Verdict.SKIP: "跳过"}
-_COLOR = {Verdict.PASS: "#1a7f37", Verdict.FAIL: "#cf222e", Verdict.ENV_ERROR: "#9a6700",
-          Verdict.ABORTED: "#8250df", Verdict.SKIP: "#57606a"}
+_LABEL = {Verdict.PASS: "通过", Verdict.FAIL: "失败", Verdict.PARTIAL: "无法判定（证据不完整）",
+          Verdict.ENV_ERROR: "环境错", Verdict.ABORTED: "作废", Verdict.SKIP: "跳过"}
+_COLOR = {Verdict.PASS: "#1a7f37", Verdict.FAIL: "#cf222e", Verdict.PARTIAL: "#9a6700",
+          Verdict.ENV_ERROR: "#9a6700", Verdict.ABORTED: "#8250df", Verdict.SKIP: "#57606a"}
 
 
 def _esc(v) -> str:
@@ -44,7 +44,13 @@ def _detail_table(cols, rows) -> str:
 
 def _layer_html(ly: dict) -> str:
     ok = ly.get("ok")
-    badge = "<span class='ok'>一致 ✓</span>" if ok else "<span class='bad'>不一致 ✗</span>"
+    status = str(ly.get("status") or "")
+    if status == "INCONCLUSIVE":
+        badge = "<span class='note'>无法判定（证据不完整）</span>"
+    elif ok is None:
+        badge = "<span class='note'>未执行</span>"
+    else:
+        badge = "<span class='ok'>一致 ✓</span>" if ok else "<span class='bad'>不一致 ✗</span>"
     parts = [f"<div class=layer><div class=lh><b>{_esc(ly.get('name'))}</b> {badge}</div>"]
     if ly.get("expected") is not None:
         parts.append(f"<div class=kv><span>预期</span>{_esc(ly['expected'])}</div>")
@@ -64,17 +70,50 @@ def _layer_html(ly: dict) -> str:
 
 def _evidence_html(ev: dict, run_dir: Path) -> str:
     if not ev:
-        return ""
-    out = ["<div class=evi><b>证据</b>"]
-    for s in ev.get("screenshots", []):
-        out.append(f"<div><a href='{_esc(s)}'>{_esc(s)}</a><br>"
-                   f"<img src='{_esc(s)}' style='max-width:520px;border:1px solid #d0d7de'></div>")
+        return "<div class='evi empty'><b>运行证据</b><div>未执行，无截图、录屏或页面 HTML。</div></div>"
+    out = ["<div class=evi><b>运行证据</b>"]
+    root = run_dir.resolve()
+    missing = list(ev.get("missing") or [])
+
+    def evidence_path(value) -> tuple[str, bool]:
+        candidate = Path(str(value))
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        try:
+            resolved = candidate.resolve()
+            relative = resolved.relative_to(root)
+        except (OSError, ValueError):
+            return "", False
+        return relative.as_posix(), resolved.is_file()
+
+    for index, screenshot in enumerate(ev.get("screenshots", []), start=1):
+        rel, exists = evidence_path(screenshot)
+        if not exists:
+            missing.append(f"截图 {index} 不存在或不在运行目录内")
+            continue
+        out.append(f"<div><a href='{_esc(rel)}'>{_esc(rel)}</a><br>"
+                   f"<img src='{_esc(rel)}' style='max-width:520px;border:1px solid #d0d7de'></div>")
     if ev.get("video"):
-        v = ev["video"]
-        out.append(f"<div><a href='{_esc(v)}'>操作录像 {_esc(v)}</a><br>"
-                   f"<video controls width='520' src='{_esc(v)}'></video></div>")
-    for d in ev.get("data", []):
-        out.append(f"<div><a href='{_esc(d)}'>{_esc(d)}</a></div>")
+        video, exists = evidence_path(ev["video"])
+        if exists:
+            out.append(f"<div><a href='{_esc(video)}'>完整操作录像 {_esc(video)}</a><br>"
+                       f"<video controls width='520' src='{_esc(video)}'></video></div>")
+        else:
+            missing.append("录屏不存在或不在运行目录内")
+    if ev.get("html"):
+        page_html, exists = evidence_path(ev["html"])
+        if exists:
+            out.append(f"<div><a href='{_esc(page_html)}'>页面 HTML {_esc(page_html)}</a></div>")
+        else:
+            missing.append("页面 HTML 不存在或不在运行目录内")
+    for data_path in ev.get("data", []):
+        rel, exists = evidence_path(data_path)
+        if exists:
+            out.append(f"<div><a href='{_esc(rel)}'>{_esc(rel)}</a></div>")
+        else:
+            missing.append("附加证据不存在或不在运行目录内")
+    for item in dict.fromkeys(missing):
+        out.append(f"<div class=note>缺失证据：{_esc(item)}</div>")
     out.append("</div>")
     return "".join(out)
 
@@ -106,7 +145,8 @@ def ui_layer(ui) -> dict:
             "cols": cols, "rows": rows}
 
 
-def render(run_id: str, results: list[CaseResult], run_dir: Path) -> Path:
+def render(run_id: str, results: list[CaseResult], run_dir: Path, *,
+           write_summary: bool = True) -> Path:
     cards = []
     for r in results:
         rep = r.report or {}
@@ -114,6 +154,20 @@ def render(run_id: str, results: list[CaseResult], run_dir: Path) -> Path:
         label = _LABEL.get(r.verdict, r.verdict.value)
         did = "".join(f"<li>{_esc(x)}</li>" for x in rep.get("did", []))
         layers = "".join(_layer_html(ly) for ly in rep.get("layers", []))
+        source = rep.get("source") or {}
+        source_html = "".join(
+            f"<div class=kv><span>{_esc(label)}</span><pre>{_esc(source.get(key))}</pre></div>"
+            for key, label in (("module", "模块"), ("preconditions", "前置条件"),
+                               ("steps", "原始步骤"), ("expected", "原始预期"))
+            if source.get(key)
+        )
+        diagnostics = rep.get("ui_diagnostics") or {}
+        diagnostics_html = ""
+        if diagnostics:
+            diagnostics_html = (
+                "<details class=diag><summary>UI 诊断（页面触发的网络请求，不是 API 测试结果）</summary>"
+                f"<pre>{_esc(json.dumps(diagnostics, ensure_ascii=False, indent=2))}</pre></details>"
+            )
         # 没有结构化 report 时,退回展示 details 文本
         if not rep:
             layers = "<div class=layer>" + "<br>".join(_esc(d) for d in r.details) + "</div>"
@@ -132,9 +186,11 @@ def render(run_id: str, results: list[CaseResult], run_dir: Path) -> Path:
       {score_chip}
       {_esc(r.case_id)} <span class=title>{_esc(r.title)}</span>
       <span class=meta>{_esc(r.kind)}/{_esc(r.mode)} · {r.duration_s}s</span></h2>
+  {'<div class=source><b>用例原文</b>'+source_html+'</div>' if source_html else ''}
   {'<div class=did><b>做了什么</b><ol>'+did+'</ol></div>' if did else ''}
   {layers}
   {evi}
+  {diagnostics_html}
 </section>""")
 
     n = len(results)
@@ -163,11 +219,13 @@ main{{max-width:980px;margin:0 auto;padding:20px}}
 .ok{{color:#1a7f37;font-weight:600}} .bad{{color:#cf222e;font-weight:600}}
 .kv{{margin:3px 0}} .kv>span{{display:inline-block;min-width:76px;color:#57606a}}
 .kv code{{background:#eef1f4;padding:2px 6px;border-radius:5px;font-size:12px;word-break:break-all}}
+.kv pre,.diag pre{{white-space:pre-wrap;margin:5px 0 8px;background:#f6f8fa;padding:8px;border-radius:6px}}
 .note{{color:#8c959f;font-size:12px;margin:4px 0}}
 table.dt{{border-collapse:collapse;margin:8px 0;width:100%;font-size:13px}}
 table.dt th,table.dt td{{border:1px solid #d9dee3;padding:4px 8px;text-align:left}}
 table.dt th{{background:#f0f3f6}}
-.evi{{margin-top:10px}} .evi>div{{margin:8px 0}}
+.evi{{margin-top:10px}} .evi>div{{margin:8px 0}} .evi.empty{{color:#8c959f}}
+.diag{{margin-top:10px;color:#57606a}}
 </style></head><body>
 <header><div style='font-size:18px;font-weight:600'>测试报告</div>
 <div class=s>运行 {run_id} · 共 {n} · <b style='color:#7ee787'>通过 {npass}</b>
@@ -178,7 +236,8 @@ table.dt th{{background:#f0f3f6}}
     out = run_dir / "report.html"
     out.write_text(doc, encoding="utf-8")
     # 机器可读小结:供跨运行总览(render_index)聚合
-    (run_dir / "summary.json").write_text(json.dumps({
+    if write_summary:
+        (run_dir / "summary.json").write_text(json.dumps({
         "run_id": run_id, "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "total": n, "pass": npass, "fail": nfail, "skip": nskip,
         "partial": npartial, "blocked": nblocked, "invalid_spec": ninvalid,
@@ -193,7 +252,7 @@ table.dt th{{background:#f0f3f6}}
                                           if r.required_assertions else None),
                    "cleanup_ok": r.cleanup_ok,
                    "note": (r.details[0] if r.details else "")} for r in results],
-    }, ensure_ascii=False, indent=2), encoding="utf-8")
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
     return out
 
 

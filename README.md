@@ -7,6 +7,21 @@ URL,工具自己驱动真实浏览器(登录、声明式操作、录像/截图)�
 
 ## 快速上手(新系统三步)
 
+推荐使用统一 CLI：
+
+```bash
+crosscheck doctor
+crosscheck init ./my-workspace
+crosscheck plan --suite ./my-workspace/suites/<suite-id> --workspace ./my-workspace
+crosscheck run --suite ./my-workspace/suites/<suite-id> --workspace ./my-workspace --ensure-login
+crosscheck dashboard --workspace ./my-workspace
+crosscheck map --workspace ./my-workspace
+crosscheck readiness --suite ./my-workspace/suites/<suite-id> --workspace ./my-workspace
+crosscheck demo --workspace ./demo-output
+```
+
+对外用户只使用 `crosscheck` CLI。根目录 `run_*.py` 是迁移兼容入口，不承载新的产品能力，可能在后续主版本删除。
+
 ```bash
 python run_bootstrap.py https://你的系统/任意页面   # ① 浏览器登一次,自动生成 profile(不用写 yaml)
 python run_preflight.py <site>                      # ② 自发现环境:库结构/接口目录/站点,出就绪图
@@ -124,6 +139,9 @@ python run_verify.py reconcile --profile <你的站点>   # 用审过的映射�
 ## 安全边界
 
 - 只连接隔离测试环境。查询使用只读账号;造数/清理使用独立、最小权限的写账号,不要连接生产库。
+- 正式支持范围为 Chromium + REST/JSON + MySQL；SQLite 仅用于本地演示和回归。完整矩阵见 `docs/COMPATIBILITY.md`。
+- 原生 App、桌面客户端、性能、渗透、MQ/gRPC/WebSocket 和非 MySQL 数据库不在内置正式支持范围。
+- 超出内置范围的协议/数据库通过 `core.plugins` 扩展，但插件不会绕过 canonical 审批、断言、证据和清理门禁。
 - `cleanup` 是删除操作的显式白名单,且写入规格必须配置 `allowed_tables` 作为变更安全网;所有表名和列名都会校验为 SQL 标识符,不接受 SQL 片段。
 - `credentials.yaml` 和 `.auth/` 含明文口令或登录态,只能保存在自管 workspace,不得压缩、提交或转发。
 - workspace 中的 Python 文件拥有当前用户权限,不是安全沙箱。默认不执行;只有确认来源可信时才加 `--allow-workspace-scripts`。
@@ -166,6 +184,23 @@ Skill 的第一阶段固定为**自动收集信息**，随后以 pipeline 形式
 
 ## 标准套件 DSL
 
+### 受控知识闭环
+
+用户确认过的业务规则和操作知识应落在 workspace，而不是只留在聊天记录中：
+
+```bash
+python scripts/knowledge.py --workspace <ws> record-answer --project my-system --module orders \
+  --question "处理中订单归入哪个页签？" --answer "仍有剩余量时归入待下单"
+python scripts/knowledge.py --workspace <ws> list-pending
+python scripts/knowledge.py --workspace <ws> approve K-Q-<id> --approver tester
+python scripts/knowledge.py --workspace <ws> search "待下单 剩余量"
+python scripts/knowledge.py --workspace <ws> recommend <ws>/suites/<suite-id>/cases/<case>.yaml
+python scripts/knowledge.py --workspace <ws> check-question --project my-system --module orders \
+  --question "处理中订单归入哪个页签？"
+```
+
+正式用例通过 `knowledge_refs` 声明依赖，审批时同时保存 `approval.knowledge_hashes`。知识未审批、已过期、冲突或内容变化时，编译器拒绝复用旧审批，避免模型猜测或陈旧规则进入正式 PASS/FAIL。
+
 复杂业务建议先将散文 Excel 导入套件级隔离目录：
 
 ```powershell
@@ -179,4 +214,18 @@ python run_suite.py --suite workspace/suites/my-system-feature-v1 --workspace wo
 
 case-gen YAML 使用 `python scripts/import_casegen.py ...` 导入。正式执行由 `run_suite.py` 从 canonical case 编译执行计划；共享 `workspace/specs_verified` 和 `run_batch.py --excel` 仅保留为迁移兼容路径。
 
-完整能力验收标准见 `docs/GENERAL_TOOL_ACCEPTANCE.md`；优化设计与历史错位见 `docs/OPTIMIZATION_ROADMAP.md`。
+完整能力验收标准见 `docs/GENERAL_TOOL_ACCEPTANCE.md`；当前实现状态见 `docs/IMPLEMENTATION_STATUS.md`。历史规划、审计和交接材料统一收在 `docs/archive/`。
+
+## 发布与交付
+
+```powershell
+python run_tests.py
+python scripts/acceptance_matrix.py
+python scripts/verify_distribution.py
+python scripts/external_acceptance.py <evidence-dir>/manifest.yaml
+crosscheck release --out dist/crosscheck-source.zip
+```
+
+CI 还执行分支覆盖率门禁（`coverage report --fail-under=55`）、干净 wheel 安装和 Windows Chromium demo；本地可用 `python run_tests.py --coverage` 复现。
+
+正式发布要求 Git 工作树干净，只打包已跟踪文件，并同时生成 SHA-256 与内嵌 commit manifest。详见 `docs/RELEASE_CHECKLIST.md`；常见失败处理见 `docs/TROUBLESHOOTING.md`。

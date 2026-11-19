@@ -1,5 +1,7 @@
 # 接入一个新业务(零改框架码)
 
+接入前先阅读 `docs/COMPATIBILITY.md`。内置正式范围是企业 Web、Chromium、REST/JSON 和 MySQL；超出范围先做插件 PoC，不得直接承诺支持。
+
 开始前先按根目录 README 安装 Python 3.10+、全部依赖和 Chromium,并运行 `python scripts/preflight_install.py`。
 
 新项目先导入到 `<workspace>/suites/<suite-id>`，补齐 canonical YAML 后用 `run_suite.py` 执行。旧 Excel/run_batch 流程只用于迁移兼容，不是新项目主路径。
@@ -36,7 +38,18 @@ python run_verify.py login --profile <站点> --workspace <ws>
 ## 4. 放用例、跑
 把用例 Excel 放进 `cases/`,一条命令自动建模 + 执行:
 ```bash
+新项目正式流程使用 canonical suite：
+
+```bash
+crosscheck plan --suite <ws>/suites/<suite-id> --workspace <ws>
+crosscheck run --suite <ws>/suites/<suite-id> --workspace <ws> --ensure-login
+```
+
+旧 Excel 入口仅用于迁移诊断：
+
+```bash
 python run_batch.py --excel cases/<用例>.xlsx --auto-model --workspace <ws>
+```
 ```
 框架给能建模的用例(有路由+映射/模板)自动拼规格并执行;复杂用例可让 **crosscheck 技能**读散文草拟规格(会话内 LLM)、人审一次转 `human_verified` 后再跑。
 

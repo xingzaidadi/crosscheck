@@ -22,13 +22,15 @@ _WHOLE_PH = re.compile(r"^\{\{([^{}]+)\}\}$")   # 整值占位:整串就是一�
 
 class ApiAdapter(BaseAdapter):
     def __init__(self, kb=None, credentials: dict | None = None,
-                 base_url: str = "", session_file: str | None = None, timeout: int = 20):
+                 base_url: str = "", session_file: str | None = None, timeout: int = 20,
+                 refresh_session=None):
         super().__init__(kb)
         self.credentials = credentials or {}
         self.base_url = (base_url or "").rstrip("/")
         self.session_file = session_file
         self.timeout = timeout
         self._client = None
+        self.refresh_session = refresh_session
 
     def setup(self, case: TestCase | None = None) -> None:
         import httpx  # 延迟导入
@@ -77,20 +79,30 @@ class ApiAdapter(BaseAdapter):
         marker_field = request.get("marker_field")
         if marker_field and isinstance(body, dict) and "marker" in vars:
             body[marker_field] = vars["marker"]
+        request_evidence = {"method": method, "url": url, "headers": _redact_headers(headers), "body": body}
         try:
-            if method == "GET":
-                resp = self._client.request(method, url, params=body or None, headers=headers)
-            else:
-                # POST/PUT/PATCH/DELETE 一律走 json 体:Spring @RequestBody 的 DELETE(如模板数据批量删)
-                # 需要请求体而非 query;旧写法把 DELETE body 当 query 发,带 @RequestBody 的 DELETE 驱动不了。
-                resp = self._client.request(method, url, json=body, headers=headers)
+            resp = self._request(method, url, body, headers)
+            if resp.status_code in {401, 403} and self.refresh_session is not None:
+                self.refresh_session()
+                self._client.cookies = self._load_cookies()
+                safe_retry = method in {"GET", "HEAD", "OPTIONS"} or any(
+                    str(key).lower() == "idempotency-key" and value
+                    for key, value in headers.items())
+                if safe_retry:
+                    resp = self._request(method, url, body, headers)
         except Exception as e:  # noqa: BLE001
-            return ActionResult(ok=False, error=f"请求异常: {e}")
+            return ActionResult(ok=False, error=f"请求异常: {e}", api_request=request_evidence)
         try:
             data = resp.json()
         except Exception:  # noqa: BLE001
             data = resp.text
-        return ActionResult(ok=resp.status_code < 400, api_status=resp.status_code, api_body=data)
+        return ActionResult(ok=resp.status_code < 400, api_status=resp.status_code, api_body=data,
+                            api_request=request_evidence)
+
+    def _request(self, method: str, url: str, body: Any, headers: dict):
+        if method == "GET":
+            return self._client.request(method, url, params=body or None, headers=headers)
+        return self._client.request(method, url, json=body, headers=headers)
 
     def perform(self, case: TestCase, marker: str, vars: dict | None = None) -> ActionResult:
         raw = case.raw or {}
@@ -107,3 +119,9 @@ class ApiAdapter(BaseAdapter):
         if self._client is not None:
             self._client.close()
             self._client = None
+
+
+def _redact_headers(headers: dict) -> dict:
+    secret_names = {"authorization", "cookie", "set-cookie", "x-api-key", "proxy-authorization"}
+    return {key: ("<redacted>" if str(key).lower() in secret_names else value)
+            for key, value in (headers or {}).items()}

@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import zipfile
 from pathlib import Path
-from xml.etree import ElementTree as ET
+from defusedxml import ElementTree as ET
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 

@@ -34,6 +34,20 @@ def table_constraints(db: DbClient, table: str) -> dict[str, dict[str, Any]]:
                 "required": bool(r["notnull"]) and r["dflt_value"] is None and not r["pk"],
             }
         return out
+    if db.dialect == "postgresql":
+        rows = db.query(
+            "SELECT c.column_name AS name, c.is_nullable AS nullable, c.data_type AS dtype, "
+            "c.column_default AS dflt, '' AS ctype, '' AS extra "
+            "FROM information_schema.columns c WHERE c.table_schema = current_schema() "
+            "AND c.table_name = :t ORDER BY c.ordinal_position", {"t": table})
+        for r in rows:
+            out[r["name"]] = {
+                "type": r["dtype"], "enum": [], "default": r.get("dflt"), "auto": False,
+                "required": (r["nullable"] == "NO") and r.get("dflt") is None,
+            }
+        return out
+    if db.dialect != "mysql":
+        raise RuntimeError(f"database dialect {db.dialect!r} requires a reviewed database plugin")
     rows = db.query(
         "SELECT COLUMN_NAME AS name, IS_NULLABLE AS nullable, DATA_TYPE AS dtype, "
         "COLUMN_TYPE AS ctype, COLUMN_DEFAULT AS dflt, EXTRA AS extra "

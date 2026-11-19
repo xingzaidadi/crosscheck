@@ -7,13 +7,23 @@ from pathlib import Path
 from typing import Any
 
 from core.spec import ExecSpec
+from core.knowledge import KnowledgeBase
 from core.suite_context import SuiteContext
 from core.suite_dsl import assertion_ids, case_content_hash, execution_id, score_case, source_hash
+from core.case_v2 import migrate_v1, to_legacy_execution, validate_v2
 from core.suite_bindings import resolve_bindings
 
 
 def compile_case(case: dict[str, Any], suite: dict[str, Any], context: SuiteContext) -> ExecSpec:
     original = case
+    if int(case.get("schema_version") or 1) >= 2:
+        v2_errors = validate_v2(case)
+        if v2_errors:
+            raise ValueError(f"invalid case v2: {v2_errors}")
+        case = to_legacy_execution(case)
+    else:
+        case = migrate_v1(case)
+    knowledge_dependencies = _resolve_knowledge_dependencies(original, context)
     case = resolve_bindings(case, suite, context)
     connector_hash = ""
     if suite.get("connector"):
@@ -31,6 +41,10 @@ def compile_case(case: dict[str, Any], suite: dict[str, Any], context: SuiteCont
     if original_approval.get("status") != "human_verified" or original_approval.get("content_hash") != case_content_hash(original):
         raise ValueError("approval must match original canonical case content_hash")
     result = score_case(case_for_score, str(suite["suite_id"]))
+    if int(original.get("schema_version") or 1) >= 2:
+        result["errors"] = [error for error in result["errors"] if not error.startswith("schema_version must be")]
+        result["warnings"] = [warning for warning in result["warnings"] if not warning.startswith("missing ")]
+        result["execution_ready"] = not result["errors"] and original.get("status") == "ready"
     if not result["execution_ready"]:
         raise ValueError(f"case is not executable: {case.get('case_id')}: {result['errors'] + result['warnings']}")
     execution = case["execution"]
@@ -75,16 +89,35 @@ def compile_case(case: dict[str, Any], suite: dict[str, Any], context: SuiteCont
         needs_review=[],
         raw={
             "canonical_case_id": case["case_id"],
+            "canonical_case_key": str((original.get("source") or {}).get("case_key") or ""),
+            "execution_source": "approved_canonical",
             "suite_id": suite["suite_id"],
             "suite_hash": source_hash(suite),
             "case_hash": case_content_hash(original),
             "connector_hash": connector_hash,
+            "knowledge_dependencies": knowledge_dependencies,
             "assertion_ids": required_ids,
             "assertion_bindings": bindings,
+            "raw_v2": original if int(original.get("schema_version") or 1) >= 2 else {},
         },
     )
     _validate_compiled(spec, case)
     return spec
+
+
+def _resolve_knowledge_dependencies(case: dict[str, Any], context: SuiteContext) -> list[dict[str, Any]]:
+    references = case.get("knowledge_refs") or []
+    if not isinstance(references, list):
+        raise ValueError("knowledge_refs must be a list")
+    if not references:
+        return []
+    knowledge = KnowledgeBase(context.workspace).load()
+    dependencies = knowledge.dependencies(str(item) for item in references)
+    expected = (case.get("approval") or {}).get("knowledge_hashes") or {}
+    actual = {item["knowledge_id"]: item["content_hash"] for item in dependencies}
+    if expected != actual:
+        raise ValueError("knowledge changed or approval.knowledge_hashes is missing")
+    return dependencies
 
 
 def compile_suite(suite: dict[str, Any], cases: list[dict[str, Any]], context: SuiteContext) -> tuple[list[ExecSpec], list[dict]]:

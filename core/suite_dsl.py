@@ -9,14 +9,16 @@ from typing import Any
 
 import yaml
 
+from .case_v2 import migrate_v1, validate_v2
+
 
 LAYERS = {"ui", "api", "db", "manual", "script"}
 REQUIRED_CASE_KEYS = {"case_id", "title", "suite_id", "status", "layers", "assertions"}
 ALLOWED_CASE_KEYS = {
     "schema_version", "case_id", "title", "suite_id", "version", "source", "priority", "status",
     "scenario_type", "business_tags", "layers", "actors", "data", "actions", "assertions", "cleanup",
-    "evidence", "approval", "execution", "notes", "open_questions",
-    "actor",
+    "evidence", "approval", "execution", "notes", "open_questions", "knowledge_refs",
+    "actor", "traceability", "intent", "preconditions", "action", "oracles", "wait", "raw_v2",
 }
 ALLOWED_EXECUTION_KEYS = {
     "mode", "kind", "act_via", "feature", "db", "base_url", "session", "request", "ui",
@@ -36,6 +38,22 @@ def load_yaml(path: str | Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"YAML root must be an object: {path}")
     return data
+
+
+def load_case_v2(data: dict[str, Any], *, migrate: bool = True) -> dict[str, Any]:
+    candidate = migrate_v1(data) if migrate else data
+    errors = validate_v2(candidate)
+    if errors:
+        raise ValueError("invalid case v2: " + "; ".join(errors))
+    return candidate
+
+
+def load_case_v2(data: dict[str, Any], *, migrate: bool = True) -> dict[str, Any]:
+    candidate = migrate_v1(data) if migrate else data
+    errors = validate_v2(candidate)
+    if errors:
+        raise ValueError("invalid case v2: " + "; ".join(errors))
+    return candidate
 
 
 def suite_id(data: dict[str, Any]) -> str:
@@ -100,8 +118,8 @@ def score_case(case: dict[str, Any], expected_suite: str | None = None) -> dict[
     errors.extend(f"missing key: {key}" for key in missing)
     errors.extend(f"unknown key: {key}" for key in sorted(set(case) - ALLOWED_CASE_KEYS))
     case_suite = str(case.get("suite_id") or "")
-    if case.get("schema_version") != SCHEMA_VERSION:
-        errors.append(f"schema_version must be {SCHEMA_VERSION}")
+    if case.get("schema_version") not in {SCHEMA_VERSION, 2}:
+        errors.append(f"schema_version must be {SCHEMA_VERSION} or 2")
     if not _SAFE_ID.fullmatch(str(case.get("case_id") or "")):
         errors.append("case_id is missing or unsafe")
     if case.get("status") not in CASE_STATUSES:

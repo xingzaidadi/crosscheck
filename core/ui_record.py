@@ -12,6 +12,7 @@ import json
 import time
 from pathlib import Path
 
+from core.knowledge import KnowledgeBase
 from core.workspace import kb_dir
 
 # 注入页面的监听:记录交互事件到 window.__ccRec,带最近 form-item 标签 + 控件信息
@@ -123,3 +124,18 @@ def save_page_model(feature: str, model: list[dict]) -> Path:
         {"feature": feature, "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"), "steps": model},
         ensure_ascii=False, indent=2), encoding="utf-8")
     return path
+
+
+def save_operating_procedure(feature: str, page_url: str, model: list[dict], *,
+                             source: str = "ui_record", status: str = "pending") -> Path:
+    """Persist a recorded flow as reviewable reusable project knowledge."""
+    knowledge = KnowledgeBase(kb_dir().parent)
+    return knowledge.write_pending({
+        "knowledge_id": f"K-OP-{feature}-{abs(hash(page_url)) % 100000000:08d}",
+        "type": "operating_procedure",
+        "storage_kind": "operating_procedures",
+        "scope": {"feature": feature},
+        "statement": {"page_url": page_url, "steps": model},
+        "source": {"type": source, "page_url": page_url},
+        "governance": {"approval_status": status, "mandatory": False, "confidence": 0.6},
+    })

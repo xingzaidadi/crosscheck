@@ -14,12 +14,13 @@ except Exception:
     pass
 
 from core.suite_dsl import load_suite, score_suite, write_score
-from core.suite_compiler import compile_suite, write_plan
+from core.suite_execution import build_execution_plan, write_execution_plan, write_lifecycle_report
 from core.suite_context import SuiteContext
 from core.workspace import set_workspace
 from core.reporter import Reporter
 from core import run_report
 from core.pipeline_runner import run_pipeline
+from core.run_events import append_event
 from run_batch import execute, finalize_result
 
 
@@ -35,8 +36,11 @@ def main() -> int:
     parser.add_argument("--only", default=None)
     parser.add_argument("--ensure-login", action="store_true")
     parser.add_argument("--pilot-size", type=int, default=3)
+    parser.add_argument("--run-all-selected", action="store_true",
+                        help="执行全部已选 READY 用例，不因 pilot 熔断")
     parser.add_argument("--no-resume", action="store_true")
     parser.add_argument("--run-id", default=None)
+    parser.add_argument("--ui-first", action="store_true")
     args = parser.parse_args()
     suite_dir = Path(args.suite).resolve()
     workspace = Path(args.workspace).resolve()
@@ -55,21 +59,29 @@ def main() -> int:
     if not authorization.get("confirmed_non_production"):
         print("[suite] 未确认非生产环境: suite.authorization.confirmed_non_production 必须为 true")
         return 6
-    specs, invalid = compile_suite(suite, cases, context)
+    phase = "ui" if args.ui_first else "all"
+    specs, lifecycle = build_execution_plan(suite, cases, context, suite_dir, phase=phase)
+    lifecycle_path = write_lifecycle_report(lifecycle, reports / "execution_readiness.json")
     if args.only:
         wanted = {value.strip() for value in args.only.split(",") if value.strip()}
-        specs = [spec for spec in specs if spec.case_id in wanted or spec.raw.get("canonical_case_id") in wanted]
-    plan_path = write_plan(specs, reports / "execution_plan.json")
-    print(f"[suite] compiled={len(specs)} invalid={len(invalid)} plan={plan_path}")
+        specs = [spec for spec in specs if spec.case_id in wanted
+                 or spec.raw.get("canonical_case_id") in wanted
+                 or spec.raw.get("canonical_case_key") in wanted
+                 or str(spec.raw.get("canonical_case_key") or "").split("/")[-1] in wanted]
+    invalid = lifecycle["invalid"]
+    plan_path = write_execution_plan(specs, lifecycle, reports / "execution_plan.json")
+    print(f"[suite] execution_ready={lifecycle['execution_ready']} selected={len(specs)}"
+          f" invalid={len(invalid)} plan={plan_path}")
+    print(f"[suite] lifecycle={lifecycle_path}")
     if invalid:
         invalid_path = reports / "invalid_cases.json"
         import json
         invalid_path.write_text(json.dumps(invalid, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"[suite] invalid cases: {invalid_path}")
     if args.plan_only:
-        return 0 if not invalid else 2
+        return 0
     if not specs and not invalid:
-        print("[suite] 没有可执行的 approved canonical case。")
+        print("[suite] 没有 execution_ready case；详见 lifecycle 缺口报告。")
         return 2
 
     run_id = args.run_id or f"suite_{suite['suite_id']}_{time.strftime('%Y%m%d_%H%M%S')}"
@@ -84,11 +96,22 @@ def main() -> int:
             print(f"[suite] session ensure failed: {actions}")
             return 3
 
+    def execute_with_events(spec):
+        append_event(run_dir, run_id=run_id, case_id=spec.case_id,
+                     state="running", assertion_ids=list((spec.raw or {}).get("assertion_ids") or []))
+        result = finalize_result(spec, execute(spec, False, run_dir, False, False, phase=phase), phase=phase)
+        append_event(run_dir, run_id=run_id, case_id=spec.case_id,
+                     state="succeeded" if result.verdict.value == "pass" else "failed",
+                     failure_class=result.failure_class,
+                     assertion_ids=result.executed_assertions,
+                     detail="; ".join(result.details))
+        return result
+
     outcome = run_pipeline(
         specs,
-        lambda spec: finalize_result(spec, execute(spec, False, run_dir, False, False)),
+        execute_with_events,
         run_dir,
-        pilot_size=args.pilot_size,
+        pilot_size=0 if args.run_all_selected else args.pilot_size,
         resume=not args.no_resume,
     )
     results = outcome.results

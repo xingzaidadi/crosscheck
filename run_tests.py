@@ -6,6 +6,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+import argparse
 from pathlib import Path
 
 try:
@@ -17,12 +18,19 @@ ROOT = Path(__file__).resolve().parent
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="运行 tests/ 下全部离线回归")
+    parser.add_argument("--coverage", action="store_true", help="用 coverage 子进程统计测试覆盖率")
+    args = parser.parse_args()
     tests = sorted((ROOT / "tests").glob("test_*.py"))
     print(f"统一自测:{len(tests)} 个用例(离线)\n")
     passed, failed = [], []
     t0 = time.time()
     for t in tests:
-        r = subprocess.run([sys.executable, "-I", str(t)], cwd=str(ROOT),
+        command = [sys.executable, "-I", str(t)]
+        if args.coverage:
+            command = [sys.executable, "-m", "coverage", "run", "--parallel-mode",
+                       "--source=core,adapters,db,scripts", str(t)]
+        r = subprocess.run(command, cwd=str(ROOT),
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         ok = r.returncode == 0
         (passed if ok else failed).append(t.name)

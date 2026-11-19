@@ -87,6 +87,17 @@ def save_action_stub(site: str, action_key: str, stub: dict) -> Path:
     return out
 
 
+def save_action_asset(site: str, action_key: str, stub: dict) -> Path:
+    """Persist a captured action as a reviewable, sanitized asset candidate."""
+    from core.asset_pipeline import candidate_from_capture
+    from core.workspace import kb_dir
+    out = kb_dir() / "asset_candidates" / site / f"{action_key}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    asset = candidate_from_capture(stub, asset_type="ui_action")
+    out.write_text(json.dumps(asset, ensure_ascii=False, indent=2), encoding="utf-8")
+    return out
+
+
 def load_action_stub(site: str, action_key: str) -> dict | None:
     from core.workspace import kb_dir
     p = kb_dir() / "action_stubs" / site / f"{action_key}.json"

@@ -14,6 +14,10 @@ login:
   login_url: https://demo.example.com/login
   liveness_url: https://demo.example.com/home   # 打开它判断登录态是否还在;空则用 base_url
   logged_in_selector: null                       # 填稳定的"已登录"标志更准;null 则看是否被打回 /login
+  session_ttl_minutes: null                      # 可选：超过此时间强制重新检活/登录
+  mfa:
+    mode: manual                                 # manual / external / none;不绕过 MFA
+    prompt: "完成 MFA/验证码后继续"
 
   # ── B 模式:声明式自动登录。把上面 mode 改成 credential,并填 steps。只适合简单账密页。 ──
   # mode: credential

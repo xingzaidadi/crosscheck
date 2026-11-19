@@ -1,0 +1,22 @@
+schema_version: 1
+suite_id: my-system-feature-20261111
+suite_name: 示例业务测试套件
+version: "1.0"
+system: my-system
+environment: unknown
+authorization:
+  confirmed_non_production: false
+  confirmed_by: ''
+  confirmed_at: ''
+base_url: https://test.example.com
+profile: my-system
+database:
+  readonly: my_system_readonly
+  write: null
+execution:
+  default_layers: [ui, api, db]
+  auto_cleanup: true
+  stop_on_cleanup_failure: true
+source:
+  file: cases/source.xlsx
+  imported_at: "2026-11-11"

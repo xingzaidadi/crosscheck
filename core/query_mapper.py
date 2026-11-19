@@ -76,7 +76,11 @@ class QueryMapper:
         i = 0
 
         if self.fixed_where:
-            conditions.append(f"({self.fixed_where})")
+            fixed_where = self.fixed_where
+            actor = api_params.get("__current_user_id") or api_params.get("currentUserId")
+            if actor and "{{current_user_id}}" in fixed_where:
+                fixed_where = fixed_where.replace("{{current_user_id}}", str(actor))
+            conditions.append(f"({fixed_where})")
 
         for api_key, raw_value in api_params.items():
             spec = self.param_map.get(api_key)

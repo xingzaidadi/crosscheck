@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from .interfaces import CaseResult, Verdict
+from .failure_class import classify_verdict
 
 _LABEL = {
     Verdict.PASS: "通过", Verdict.FAIL: "失败", Verdict.ENV_ERROR: "环境错",
@@ -30,6 +31,17 @@ class Reporter:
         by = {v: 0 for v in Verdict}
         for r in self.results:
             by[r.verdict] += 1
+        failure_classes = {}
+        for result in self.results:
+            category = result.failure_class or classify_verdict(
+                result.verdict.value, cleanup_ok=result.cleanup_ok)
+            if category:
+                key = category.value if hasattr(category, "value") else str(category)
+                failure_classes[key] = failure_classes.get(key, 0) + 1
+        phase_verdicts = {}
+        for result in self.results:
+            if result.phase_verdict:
+                phase_verdicts[result.phase_verdict] = phase_verdicts.get(result.phase_verdict, 0) + 1
         return {
             "total": len(self.results),
             "pass": by[Verdict.PASS],
@@ -41,6 +53,8 @@ class Reporter:
             "aborted": by[Verdict.ABORTED],
             "skip": by[Verdict.SKIP],
             "cleanup_failed": sum(1 for r in self.results if not r.cleanup_ok),
+            "failure_classes": failure_classes,
+            "phase_verdicts": phase_verdicts,
         }
 
     def render(self) -> str:
@@ -52,6 +66,8 @@ class Reporter:
             if r.title:
                 head += f"  {r.title}"
             head += f"  ({r.duration_s}s)"
+            if r.phase_verdict:
+                head += f"  [{r.phase_verdict}]"
             lines.append(head)
             for d in r.details:
                 lines.append(f"      - {d}")

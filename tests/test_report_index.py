@@ -40,6 +40,7 @@ def main():
     assert (rd / "report.html").exists()
     assert sj["total"] == 3 and sj["pass"] == 1 and sj["fail"] == 1 and sj["skip"] == 1, sj
     assert len(sj["cases"]) == 3
+    assert not sj["evidence_errors"]
     print("    ✓ render 落 summary.json:total=3 pass=1 fail=1 skip=1,逐例明细齐")
 
     # 2) 再造一次运行,render_index 聚合两次
@@ -53,6 +54,16 @@ def main():
     assert "通过率" in html and "趋势" in html
     assert "run_A/report.html" in html and "run_B/report.html" in html, "应能直达各报告"
     print("    ✓ render_index 总览:列出 run_A/run_B、通过率、趋势、直达各报告链接")
+
+    rd3 = root / "run_C"
+    rd3.mkdir(parents=True)
+    bad = CaseResult(case_id="T4", verdict=Verdict.PASS, title="证据缺失", report={
+        "required_evidence": ["api_response.json"], "evidence": {"data": []}})
+    render("run_C", [bad], rd3)
+    sj3 = json.loads((rd3 / "summary.json").read_text(encoding="utf-8"))
+    assert sj3["evidence_errors"]["T4"]
+    assert sj3["cases"][0]["verdict"] == "partial"
+    print("    ✓ PASS 缺证据自动降为 PARTIAL")
     print("\n全部通过 ✅  —— 报告跨运行聚合(summary.json + 总览 index.html)就位")
 
 

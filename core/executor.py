@@ -14,6 +14,8 @@ from .snapshot import SnapshotGuard
 from .verifier import Verifier
 from .cleaner import Cleaner
 from .reporter import Reporter
+from .failure_class import classify_verdict
+from .run_events import append_event
 
 
 class Executor:
@@ -72,12 +74,31 @@ class Executor:
         # 9. 回写知识库(新发现映射/规则,标记待审) —— TODO
         # self.kb.write_back_pending(...)
 
+        failure = classify_verdict(verdict.value, cleanup_ok=cleanup_ok)
         result = CaseResult(
             case_id=case.case_id,
             verdict=verdict,
             details=details,
             cleanup_ok=cleanup_ok,
             duration_s=round(time.time() - t0, 2),
+            failure_class=failure.value if failure else "",
         )
+        event_dir = getattr(self.reporter, "run_dir", None)
+        if event_dir:
+            append_event(event_dir, run_id=str(getattr(self.reporter, "run_id", case.case_id)),
+                         case_id=case.case_id,
+                         state="succeeded" if verdict is Verdict.PASS else "failed",
+                         failure_class=result.failure_class, detail="; ".join(details))
+        knowledge_ids = list((getattr(case, "raw", {}) or {}).get("knowledge_dependencies") or [])
+        if knowledge_ids:
+            self.kb.capture_run_feedback(
+                [item.get("knowledge_id") for item in knowledge_ids if item.get("knowledge_id")],
+                ok=verdict is Verdict.PASS,
+                run_id=case.case_id,
+            )
+        if verdict is not Verdict.PASS:
+            self.kb.learn_failure(case_id=case.case_id, category=verdict.value,
+                                  details=details, scope={"feature": getattr(case, "feature", "")},
+                                  run_id=case.case_id)
         self.reporter.add(result)
         return result

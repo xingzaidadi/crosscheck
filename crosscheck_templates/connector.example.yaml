@@ -1,0 +1,20 @@
+schema_version: 1
+suite_id: my-system-feature-20261111
+base_url: https://test.example.com
+db: my_system_readonly
+actors:
+  operator:
+    session: ../../.auth/my-system.json
+fixtures:
+  prepared_record:
+    steps: []
+    cleanup: []
+    allowed_tables: []
+actions:
+  query_items:
+    mode: reconcile
+    request: {method: POST, url: /api/items/query, body: {pageNum: 1, pageSize: 10}}
+oracles:
+  items_match_database:
+    engine_assertions: {}
+    assertion_bindings: {}

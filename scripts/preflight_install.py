@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import platform
 import sys
 
 REQUIRED = ("playwright", "sqlalchemy", "pymysql", "yaml", "httpx", "openpyxl")
@@ -36,6 +37,8 @@ def main() -> int:
         print("  执行: python -m playwright install chromium")
         return 1
     print(f"OK: Python {sys.version.split()[0]}、依赖和 Chromium 均可用")
+    print(f"支持矩阵: OS={platform.system()} {platform.release()} · Browser=Chromium · "
+          "API=HTTP REST/JSON · DB=MySQL(正式)/SQLite(演示测试)")
     return 0
 
 

@@ -49,7 +49,17 @@ def _relpaths(paths, run_dir: Path) -> list[str]:
     return out
 
 
-def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -> CaseResult:
+def _semantic_replay_layer(results: list[dict]) -> tuple[bool, dict]:
+    ok = bool(results) and all(item.get("ok") for item in results)
+    return ok, {"name": "UI 语义动作回放", "ok": ok,
+                "cols": ["动作", "目标", "结果", "错误"],
+                "rows": [[item.get("action"), item.get("target"),
+                          "✓" if item.get("ok") else "✗", item.get("error", "")]
+                         for item in results]}
+
+
+def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None,
+                *, phase: str = "all") -> CaseResult:
     t0 = time.time()
     ui = spec.ui or {}
     page_url = ui.get("page_url") or ""
@@ -70,9 +80,13 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
 
     verdict, layers = Verdict.PASS, []
     proof_refs = []
+    semantic_actions = bool(ui.get("actions") and all(
+        isinstance(item, dict) and item.get("action") for item in ui.get("actions") or []))
     try:
         prober.probe(page_url, wait_ms=ui.get("wait_ms", 5000),
-                     actions=ui.get("actions"), extract=ui.get("extract"),
+                     actions=None if semantic_actions else ui.get("actions"),
+                     replay_actions=ui.get("actions") if semantic_actions else None,
+                     extract=ui.get("extract"),
                      value_selectors=[a["selector"] for a in (ui.get("value_asserts") or [])],
                      visibility_asserts=ui.get("visibility_asserts"))
     except Exception as e:  # noqa: BLE001
@@ -86,6 +100,13 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
     picked = matching[-1] if matching else None
     api_resp = picked.response_json if picked else {}
 
+    if semantic_actions:
+        replay_ok, replay_layer = _semantic_replay_layer(prober.replay_results)
+        layers.append(replay_layer)
+        proof_refs.append("ui.actions")
+        if not replay_ok:
+            verdict = Verdict.FAIL
+
     # 展示层(页面==接口)仅当配了 extract 才校验;纯可见性/纯值校验类 spec 不触发它
     if ui.get("extract"):
         ui_res = verify_display(prober.rendered_rows, api_resp, ui)
@@ -97,7 +118,7 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
     # 页签/按钮计算:页面显示的数 == 库真值
     if ui.get("value_asserts"):
         from core.ui_value import check_values
-        vok, vlayer = check_values(prober.value_reads, ui["value_asserts"], db)
+        vok, vlayer = check_values(prober.value_reads, ui["value_asserts"], None if phase == "ui" else db)
         layers.append(vlayer)
         proof_refs.append("ui.value_asserts")
         if not vok and verdict is Verdict.PASS:
@@ -130,9 +151,13 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
     feature = spec.feature
     mapping_path = Path(spec.mapping) if getattr(spec, "mapping", "") else (
         kb_dir() / "query_mapping" / f"{feature}.json" if feature else None)
-    if db is not None and mapping_path and mapping_path.exists() and picked is not None:
+    if phase != "ui" and db is not None and mapping_path and mapping_path.exists() and picked is not None:
         mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
-        rec = Reconciler(db, mapping).reconcile(picked.request_body or {}, api_resp)
+        reconcile_params = dict(picked.request_body or {})
+        actor = (spec.raw or {}).get("actor") or (spec.ui or {}).get("current_user_id")
+        if actor:
+            reconcile_params["__current_user_id"] = actor
+        rec = Reconciler(db, mapping).reconcile(reconcile_params, api_resp)
         layers.append(run_report.reconcile_layer(rec, mapping))
         rec_diffs = rec.count_diffs + rec.field_diffs
         proof_refs.append("mapping")
@@ -150,6 +175,9 @@ def run_ui_spec(spec, db: DbClient | None = None, run_dir: Path | None = None) -
         try:
             (rundir / "api_response.json").write_text(
                 json.dumps(api_resp, ensure_ascii=False, indent=2), encoding="utf-8")
+            (rundir / "api_request.json").write_text(
+                json.dumps({"url": picked.url, "method": picked.method,
+                            "body": picked.request_body}, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception:  # noqa: BLE001
             pass
 

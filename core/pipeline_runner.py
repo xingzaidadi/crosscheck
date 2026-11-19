@@ -26,13 +26,19 @@ def run_pipeline(
     pilot_size: int = 3,
     resume: bool = True,
     env_error_limit: int = 3,
+    registry=None,
+    run_id: str | None = None,
+    environment: str = "unknown",
 ) -> PipelineOutcome:
     root = Path(run_dir)
     root.mkdir(parents=True, exist_ok=True)
     checkpoint = root / "checkpoint.json"
     identity_path = root / "plan_identity.json"
-    identity = plan_hash(specs) if all(hasattr(spec, "raw") for spec in specs) else str([
+    identity = plan_hash(specs) if all(hasattr(spec, "raw") and hasattr(spec, "__dataclass_fields__") for spec in specs) else str([
         (spec.case_id, spec.mode) for spec in specs])
+    registry_run_id = run_id or root.name
+    if registry is not None and registry.run(registry_run_id) is None:
+        registry.create_run(registry_run_id, identity, environment)
     if resume and checkpoint.exists():
         if not identity_path.exists():
             raise RuntimeError("checkpoint has no plan identity; refusing unsafe resume")
@@ -52,7 +58,21 @@ def run_pipeline(
             if completed[spec.case_id].get("verdict") == Verdict.PASS.value:
                 pilot_passed = True
             continue
-        result = execute(spec)
+        try:
+            result = execute(spec)
+        except Exception as exc:  # unknown remote state must not be treated as a normal failure
+            result = CaseResult(case_id=spec.case_id, verdict=Verdict.ENV_ERROR,
+                                details=[f"执行异常，远端状态未知: {exc}"], cleanup_ok=False)
+            if registry is not None:
+                registry.save_step(registry_run_id, spec.case_id,
+                                   str((getattr(spec, "raw", {}) or {}).get("action_ref") or spec.mode),
+                                   "unknown", "; ".join(result.details))
+        else:
+            if registry is not None:
+                registry.save_step(registry_run_id, spec.case_id,
+                                   str((getattr(spec, "raw", {}) or {}).get("action_ref") or spec.mode),
+                                   "succeeded" if result.verdict is Verdict.PASS else "failed",
+                                   "; ".join(result.details))
         read_only = spec.mode == "reconcile" and not getattr(spec, "data_prep", None)
         if result.verdict is Verdict.ENV_ERROR and read_only and result.cleanup_ok:
             result = execute(spec)
@@ -64,21 +84,33 @@ def run_pipeline(
         _save_checkpoint(checkpoint, completed)
 
         if not result.cleanup_ok:
+            if registry is not None:
+                registry.set_run_status(registry_run_id, "failed")
             return PipelineOutcome(results, True, f"cleanup failed: {spec.case_id}")
         if result.verdict is Verdict.ENV_ERROR:
             consecutive_env += 1
             if consecutive_env >= env_error_limit:
+                if registry is not None:
+                    registry.set_run_status(registry_run_id, "stopped")
                 return PipelineOutcome(results, True, f"environment circuit breaker: {consecutive_env}")
         else:
             consecutive_env = 0
         if result.verdict in {Verdict.ABORTED, Verdict.INVALID_SPEC}:
+            if registry is not None:
+                registry.set_run_status(registry_run_id, "stopped")
             return PipelineOutcome(results, True, f"safety stop: {spec.case_id}/{result.verdict.value}")
 
         if index < min(pilot_size, len(ordered)) and result.verdict not in {Verdict.PASS, Verdict.FAIL}:
+            if registry is not None:
+                registry.set_run_status(registry_run_id, "stopped")
             return PipelineOutcome(results, True, f"pilot not conclusive: {spec.case_id}/{result.verdict.value}")
         if pilot_size > 0 and index + 1 == min(pilot_size, len(ordered)) and not pilot_passed:
+            if registry is not None:
+                registry.set_run_status(registry_run_id, "stopped")
             return PipelineOutcome(results, True, "pilot has no passing case")
 
+    if registry is not None:
+        registry.set_run_status(registry_run_id, "completed")
     return PipelineOutcome(results)
 
 

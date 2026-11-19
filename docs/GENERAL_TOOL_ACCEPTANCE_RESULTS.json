@@ -1,97 +1,258 @@
 {
-  "total": 13,
-  "passed": 13,
+  "total": 28,
+  "passed": 28,
   "results": [
     {
       "id": "P0-01",
-      "title": "空数据和基数不足不能 PASS",
+      "title": "Empty evidence cannot pass",
       "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
       "evidence": "tests/test_empty_evidence_gate.py",
       "details": "empty evidence gate passed"
     },
     {
       "id": "P0-02",
-      "title": "套件/审批/内容哈希漂移拒绝",
+      "title": "Approval and content hash drift rejection",
       "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
       "evidence": "tests/test_suite_compiler.py",
       "details": "suite compiler passed"
     },
     {
       "id": "P0-03",
-      "title": "旧编号与陈旧路由污染拒绝",
+      "title": "Stale route fidelity rejection",
       "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
       "evidence": "tests/test_route_fidelity.py",
       "details": "route fidelity passed"
     },
     {
       "id": "P0-04",
-      "title": "清理失败和登记册安全门禁",
+      "title": "Cleanup and registry safety gate",
       "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
       "evidence": "tests/test_cleaner_child.py",
       "details": "通用 Cleaner 子表按父单号清理 验证:\n\n    ✓ 子表只有父单号也能清:按父表标题标记反查父单号删子表\n    ✓ 无关单据(别的父单号)不受影响\n    ✓ 清理成功 registry 销账\n\n全部通过 ✅  —— 通用子表按父单号清理就位(标记只在父单也能连带清子表)"
     },
     {
       "id": "P0-05",
-      "title": "非生产授权门禁",
+      "title": "Non-production authorization gate",
       "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
       "evidence": "tests/test_run_suite_cli.py",
-      "details": "[suite] demo · schema=1/1 · compile_candidates=1 · structure_score=90.0\n[suite] 评分: C:\\Users\\MI\\AppData\\Local\\Temp\\tmpfri3xt4o\\workspace\\suites\\demo\\reports\\suite_score.json\n[suite] 未确认非生产环境: suite.authorization.confirmed_non_production 必须为 true\n[suite] demo · schema=1/1 · compile_candidates=1 · structure_score=90.0\n[suite] 评分: C:\\Users\\MI\\AppData\\Local\\Temp\\tmpfri3xt4o\\workspace\\suites\\demo\\reports\\suite_score.json\n[suite] compiled=1 invalid=0 plan=C:\\Users\\MI\\AppData\\Local\\Temp\\tmpfri3xt4o\\workspace\\suites\\demo\\reports\\execution_plan.json\nrun_suite CLI passed"
+      "details": "[suite] demo · schema=1/1 · compile_candidates=1 · structure_score=90.0\n[suite] 评分: C:\\Users\\MI\\AppData\\Local\\Temp\\tmpyjpn6d9d\\workspace\\suites\\demo\\reports\\suite_score.json\n[suite] 未确认非生产环境: suite.authorization.confirmed_non_production 必须为 true\n[suite] demo · schema=1/1 · compile_candidates=1 · structure_score=90.0\n[suite] 评分: C:\\Users\\MI\\AppData\\Local\\Temp\\tmpyjpn6d9d\\workspace\\suites\\demo\\reports\\suite_score.json\n[suite] execution_ready=1 selected=1 invalid=0 plan=C:\\Users\\MI\\AppData\\Local\\Temp\\tmpyjpn6d9d\\workspace\\suites\\demo\\reports\\execution_plan.json\n[suite] lifecycle=C:\\Users\\MI\\AppData\\Local\\Temp\\tmpyjpn6d9d\\workspace\\suites\\demo\\reports\\execution_readiness.json\nrun_suite CLI passed"
     },
     {
       "id": "P1-01",
-      "title": "Canonical 编译为不可变执行计划",
+      "title": "Canonical immutable execution plan",
       "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
       "evidence": "tests/test_suite_compiler.py",
       "details": "suite compiler passed"
     },
     {
       "id": "P1-02",
-      "title": "Pilot/批量/熔断/恢复状态机",
+      "title": "Pilot batch resume state machine",
       "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
       "evidence": "tests/test_pipeline_runner.py",
       "details": "pipeline runner passed"
     },
     {
       "id": "P1-03",
-      "title": "连接器配方与变更审批失效",
+      "title": "Connector binding approval",
       "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
       "evidence": "tests/test_suite_bindings.py",
       "details": "suite connector binding passed"
     },
     {
       "id": "P1-04",
-      "title": "case-gen YAML 直接导入",
+      "title": "Case-gen YAML import",
       "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
       "evidence": "tests/test_casegen_import.py",
       "details": "case-gen import passed"
     },
     {
       "id": "P1-05",
-      "title": "断言级结果和跨运行报告",
+      "title": "Assertion and run report index",
       "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
       "evidence": "tests/test_report_index.py",
-      "details": "报告跨运行聚合 验证:\n\n    ✓ render 落 summary.json:total=3 pass=1 fail=1 skip=1,逐例明细齐\n    ✓ render_index 总览:列出 run_A/run_B、通过率、趋势、直达各报告链接\n\n全部通过 ✅  —— 报告跨运行聚合(summary.json + 总览 index.html)就位"
+      "details": "报告跨运行聚合 验证:\n\n    ✓ render 落 summary.json:total=3 pass=1 fail=1 skip=1,逐例明细齐\n    ✓ render_index 总览:列出 run_A/run_B、通过率、趋势、直达各报告链接\n    ✓ PASS 缺证据自动降为 PARTIAL\n\n全部通过 ✅  —— 报告跨运行聚合(summary.json + 总览 index.html)就位"
     },
     {
       "id": "P2-01",
-      "title": "两个无关业务不改 core 编译",
+      "title": "Cross-domain canonical compilation",
       "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
       "evidence": "tests/test_cross_domain_canonical.py",
       "details": "cross-domain canonical compile passed"
     },
     {
       "id": "P2-02",
-      "title": "发布白名单和秘密扫描",
+      "title": "Release allowlist and secret scan",
       "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
       "evidence": "tests/test_release_policy.py",
       "details": "release policy passed"
     },
     {
       "id": "P2-03",
-      "title": "Skill 流水线结构有效",
+      "title": "Skill pipeline structure",
       "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
       "evidence": ".agents/skills/crosscheck/SKILL.md",
       "details": "C:\\Users\\MI\\Desktop\\vendor-test-agent\\.agents\\skills\\crosscheck\\SKILL.md"
+    },
+    {
+      "id": "P2-04",
+      "title": "Installed product CLI and templates",
+      "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
+      "evidence": "tests/test_product_cli.py",
+      "details": "✓ workspace 骨架已建好: C:\\Users\\MI\\AppData\\Local\\Temp\\tmp815q8ful\\workspace\n  接入新业务(零改框架码,详见 docs/ONBOARDING.md):\n    1) config/db.yaml      ← 填库连接(cp db.example.yaml)\n    2) profiles/<站点>.yaml ← 站点与登录(cp _example.yaml);run_verify login 建登录态\n    3) config/case_routes.yaml ← 路由(cp case_routes.example.yaml);查询类先 run_verify probe 产映射并人审\n    4) suites/ 放 canonical 套件 → crosscheck plan/run --workspace C:\\Users\\MI\\AppData\\Local\\Temp\\tmp815q8ful\\workspace\nproduct CLI passed"
+    },
+    {
+      "id": "P2-05",
+      "title": "Knowledge and system-map extensions",
+      "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
+      "evidence": "tests/test_product_extensions.py",
+      "details": "product extensions passed"
+    },
+    {
+      "id": "P2-06",
+      "title": "Two isolated system plans",
+      "passed": true,
+      "verification_level": "local_e2e",
+      "environment": "local_mock",
+      "evidence": "tests/test_two_system_e2e.py",
+      "details": "two-system E2E passed"
+    },
+    {
+      "id": "P2-07",
+      "title": "Public Playwright adapter",
+      "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
+      "evidence": "tests/test_playwright_adapter.py",
+      "details": "playwright adapter passed"
+    },
+    {
+      "id": "P2-08",
+      "title": "Local UI API DB cleanup demo",
+      "passed": true,
+      "verification_level": "local_e2e",
+      "environment": "local_mock",
+      "evidence": "tests/test_local_demo.py",
+      "details": "local demo passed"
+    },
+    {
+      "id": "P2-09",
+      "title": "External two-system evidence contract",
+      "passed": true,
+      "verification_level": "external_ready",
+      "environment": "external_manifest",
+      "evidence": "tests/test_external_acceptance.py",
+      "details": "external acceptance contract passed"
+    },
+    {
+      "id": "P2-10",
+      "title": "Package resource completeness",
+      "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
+      "evidence": "tests/test_package_resources.py",
+      "details": "package resources passed"
+    },
+    {
+      "id": "P2-11",
+      "title": "API session refresh and redaction",
+      "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
+      "evidence": "tests/test_api_refresh_evidence.py",
+      "details": "api refresh evidence passed"
+    },
+    {
+      "id": "P2-12",
+      "title": "Protocol and database plugin contracts",
+      "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
+      "evidence": "tests/test_plugins.py",
+      "details": "plugin contracts passed"
+    },
+    {
+      "id": "P2-13",
+      "title": "Database dialect guard",
+      "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
+      "evidence": "tests/test_db_dialect_guard.py",
+      "details": "database dialect guard passed"
+    },
+    {
+      "id": "P2-14",
+      "title": "Security check entrypoint",
+      "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
+      "evidence": "tests/test_security_check.py",
+      "details": "security check wiring passed"
+    },
+    {
+      "id": "P2-15",
+      "title": "Pytest entry and SQLite fixtures",
+      "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
+      "evidence": "tests/test_report_index.py",
+      "details": "报告跨运行聚合 验证:\n\n    ✓ render 落 summary.json:total=3 pass=1 fail=1 skip=1,逐例明细齐\n    ✓ render_index 总览:列出 run_A/run_B、通过率、趋势、直达各报告链接\n    ✓ PASS 缺证据自动降为 PARTIAL\n\n全部通过 ✅  —— 报告跨运行聚合(summary.json + 总览 index.html)就位"
+    },
+    {
+      "id": "P2-16",
+      "title": "Binding lifecycle drift and external adapters",
+      "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
+      "evidence": "tests/test_gap_closures.py",
+      "details": ""
+    },
+    {
+      "id": "P2-17",
+      "title": "UI-first readiness and file evidence",
+      "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
+      "evidence": "tests/test_ui_first.py",
+      "details": ""
+    },
+    {
+      "id": "P2-18",
+      "title": "Evidence sufficiency by test objective",
+      "passed": true,
+      "verification_level": "contract",
+      "environment": "offline",
+      "evidence": "tests/test_evidence_sufficiency.py",
+      "details": ""
     }
   ]
 }

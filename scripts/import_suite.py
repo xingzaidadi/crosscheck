@@ -27,9 +27,15 @@ def slug(value: str) -> str:
     return result or "case"
 
 
+def safe_case_id(suite_id: str, source_key: str, row: int) -> str:
+    suite = re.sub(r"[^A-Za-z0-9._-]+", "-", suite_id).strip("-") or "suite"
+    key = re.sub(r"[^A-Za-z0-9._-]+", "-", source_key).strip("-") or f"row-{row}"
+    return f"{suite}/{key}-{row}"[:199]
+
+
 def canonical_case(raw, suite_id: str, source_name: str) -> dict:
     classified = classify_case(raw)
-    case_id = f"{suite_id}/{slug(raw.name)}-{raw.row}"
+    case_id = safe_case_id(suite_id, str(raw.case_id or "case"), raw.row)
     return {
         "schema_version": 1,
         "case_id": case_id,
@@ -57,7 +63,8 @@ def canonical_case(raw, suite_id: str, source_name: str) -> dict:
         },
         "cleanup": {"strategy": "marker", "targets": []},
         "evidence": {"required": ["screenshot", "api_request", "api_response", "db_result"]},
-        "approval": {"status": "draft", "content_hash": ""},
+        "knowledge_refs": [],
+        "approval": {"status": "draft", "content_hash": "", "knowledge_hashes": {}},
         "execution": {},
         "notes": raw.notes,
     }

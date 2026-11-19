@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import json
+import time
 
 from core import registry
 from core.profile import Profile
@@ -101,6 +103,20 @@ def _check_live(profile: Profile, session_file: str) -> bool:
     return live
 
 
+def session_metadata(session_file: str) -> dict[str, Any]:
+    """Return non-secret storage-state metadata for diagnostics."""
+    path = Path(session_file)
+    if not path.is_file():
+        return {"exists": False}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"exists": True, "valid_json": False}
+    return {"exists": True, "valid_json": True, "origins": len(data.get("origins") or []),
+            "cookies": len(data.get("cookies") or []), "mtime": path.stat().st_mtime,
+            "age_seconds": max(0, time.time() - path.stat().st_mtime)}
+
+
 def _manual_login(profile: Profile, session_file: str, poll_seconds: int = 240) -> None:
     """
     A 模式:开有头浏览器,人工登一次。
@@ -179,7 +195,10 @@ def ensure_session(profile: Profile, creds: dict | None = None, *,
     session_file 可指定(多角色:每角色一份登录态);默认用 profile.session_file。
     """
     session_file = session_file or profile.session_file
-    if not force and Path(session_file).exists():
+    metadata = session_metadata(session_file)
+    ttl = profile.login.session_ttl_minutes
+    expired = bool(ttl and metadata.get("age_seconds", 0) > int(ttl) * 60)
+    if not force and not expired and Path(session_file).exists():
         if not check or _check_live(profile, session_file):
             print(f"  复用已有登录态: {session_file}")
             return session_file

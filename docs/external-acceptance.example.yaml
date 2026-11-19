@@ -1,0 +1,33 @@
+policy:
+  minimum_systems: 3
+  minimum_cases_per_system: 20
+  maximum_inconclusive_rate: 0.1
+  minimum_soak_runs: 5
+systems:
+  - id: purchasing-test
+    business_domain: procurement
+    base_url: https://purchasing.test.example.com
+    auth_mode: credential
+    ui_kit: antd
+    database: mysql
+    verified_layers: [ui, api, db]
+    run_report: evidence/purchasing-summary.json
+    run_report_sha256: REPLACE_WITH_SHA256
+  - id: finance-uat
+    business_domain: finance
+    base_url: https://finance.uat.example.com
+    auth_mode: sso
+    ui_kit: element-plus
+    database: mysql
+    verified_layers: [ui, api, db]
+    run_report: evidence/finance-summary.json
+    run_report_sha256: REPLACE_WITH_SHA256
+  - id: hr-test
+    business_domain: human-resources
+    base_url: https://hr.test.example.com
+    auth_mode: manual
+    ui_kit: plain-html
+    database: mysql
+    verified_layers: [ui, api, db]
+    run_report: evidence/hr-summary.json
+    run_report_sha256: REPLACE_WITH_SHA256
