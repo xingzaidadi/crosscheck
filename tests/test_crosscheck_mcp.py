@@ -107,6 +107,16 @@ def test_task_create_without_execute(workspace):
     assert result["schema_version"] == 1
 
 
+def test_agent_test_task_does_not_require_suite(workspace):
+    result = tools.call("crosscheck_task_create", {
+        "workspace": str(workspace), "operation": "agent_test", "task_id": "mcp-agent-001",
+        "url": "https://example.test", "instruction": "检查首页显示欢迎信息",
+    })
+    assert result["state"] == "created"
+    assert result["operation"] == "agent_test"
+    assert result["stage"] == "agent_test"
+
+
 def test_task_status_and_cancel(workspace):
     tools.call("crosscheck_task_create", {
         "workspace": str(workspace), "suite": "suites/demo", "operation": "plan",

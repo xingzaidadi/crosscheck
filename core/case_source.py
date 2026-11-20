@@ -28,6 +28,27 @@ COLUMN_MAP = {
     "编辑模式": "edit_mode",
     "责任人(名称)": "owner_name",
     "责任人(ID)": "owner_id",
+    "id": "name",
+    "title": "name",
+    "标题": "name",
+    "priority": "level",
+    "优先级": "level",
+    "module": "module",
+    "模块": "module",
+    "precondition": "preconditions",
+    "steps": "steps_text",
+    "步骤": "steps_text",
+    "expected": "expected_text",
+    "预期": "expected_text",
+    "role": "role",
+    "角色": "role",
+    "测试角色": "role",
+    "test_data": "test_data",
+    "测试数据": "test_data",
+    "数据": "test_data",
+    "risk": "risk",
+    "风险": "risk",
+    "风险点": "risk",
 }
 
 
@@ -44,6 +65,9 @@ class RawCase:
     edit_mode: str = ""
     owner_name: str = ""
     owner_id: str = ""
+    role: str = ""
+    test_data: str = ""
+    risk: str = ""
     row: int = 0            # 源文件行号/序号,便于回溯
 
     @property
@@ -149,9 +173,33 @@ def _read_json(path: str | Path, sheet: str | None = None) -> list[RawCase]:
             nk = _norm_key(k)
             if nk:
                 d[nk] = v
+        if item.get("id") and item.get("title") and not item.get("name"):
+            d["name"] = f"{item['id']} {item['title']}"
         c = _case_from_dict(d, rn)
         if c:
             out.append(c)
+    return out
+
+
+def _read_yaml(path: str | Path, sheet: str | None = None) -> list[RawCase]:
+    import yaml
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    if isinstance(data, dict):
+        data = data.get("cases") or data.get("data") or []
+    out = []
+    for rn, item in enumerate(data or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        normalized = {}
+        for key, value in item.items():
+            normalized_key = _norm_key(key)
+            if normalized_key:
+                normalized[normalized_key] = value
+        if item.get("id") and item.get("title") and not item.get("name"):
+            normalized["name"] = f"{item['id']} {item['title']}"
+        case = _case_from_dict(normalized, rn)
+        if case:
+            out.append(case)
     return out
 
 
@@ -160,7 +208,7 @@ def _read_json(path: str | Path, sheet: str | None = None) -> list[RawCase]:
 from core import registry  # noqa: E402
 
 for _ext, _fn in ((".xlsx", _read_xlsx), (".xlsm", _read_xlsx), (".xltx", _read_xlsx),
-                  (".csv", _read_csv), (".json", _read_json)):
+                  (".csv", _read_csv), (".json", _read_json), (".yaml", _read_yaml), (".yml", _read_yaml)):
     registry.register("case_reader", _ext, _fn)
 
 

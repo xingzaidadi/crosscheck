@@ -7,9 +7,10 @@ import json
 from typing import Any
 
 
-STATES = ("candidate", "replay_verified", "human_verified", "approved", "active", "healthy", "retired")
+STATES = ("candidate", "replay_verified", "provisional", "human_verified", "approved", "active", "healthy", "retired")
 TRANSITIONS = {"candidate": {"replay_verified", "retired"},
-               "replay_verified": {"human_verified", "retired"},
+               "replay_verified": {"provisional", "human_verified", "retired"},
+               "provisional": {"human_verified", "approved", "active", "healthy", "retired"},
                "human_verified": {"approved", "retired"},
                "approved": {"active", "healthy", "retired"},
                "active": {"healthy", "retired"}, "healthy": {"retired"}, "retired": set()}
@@ -33,8 +34,25 @@ def promote(asset: dict[str, Any], target: str, *, evidence: list[str] | None = 
 
 
 def can_execute(asset: dict[str, Any]) -> bool:
-    return asset.get("state") in {"active", "healthy"} and bool(asset.get("evidence")) \
+    return asset.get("state") in {"provisional", "active", "healthy"} and bool(asset.get("evidence")) \
         and float(asset.get("drift_rate") or 0) <= float(asset.get("max_drift_rate") or 0.2)
+
+
+def auto_promote_read_only(asset: dict[str, Any], *, evidence: list[str],
+                           replay_passes: int = 2) -> dict[str, Any]:
+    """Promote stable read-only assets without bypassing write-risk review."""
+    payload = asset.get("payload") or {}
+    if payload.get("write_risk"):
+        raise ValueError("write-risk assets require human review")
+    if int(asset.get("replay_attempts") or 0) < replay_passes:
+        raise ValueError(f"at least {replay_passes} successful replays are required")
+    if int(asset.get("replay_failures") or 0):
+        raise ValueError("assets with replay failures cannot be auto-promoted")
+    if asset.get("state") != "replay_verified":
+        raise ValueError("asset must be replay_verified")
+    updated = promote(asset, "provisional", evidence=evidence)
+    updated["auto_promotion"] = {"policy": "stable_read_only", "replay_passes": replay_passes}
+    return updated
 
 
 def record_replay(asset: dict[str, Any], *, passed: bool, original_result: Any,

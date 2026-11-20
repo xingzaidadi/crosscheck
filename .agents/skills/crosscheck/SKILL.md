@@ -1,4 +1,4 @@
----
+﻿---
 name: crosscheck
 description: 使用 crosscheck 接入、配置、探测和测试业务系统，并分析跨 UI、API、数据库的验证报告。只要用户提到新系统测试接入、自动化测试、Excel 用例执行、登录录制、接口抓取、数据库对账、测试报告分析、失败重跑或 crosscheck，就应使用本 Skill。默认采用自动流水线：先读取对话和本地 workspace 自动补齐信息，然后连续执行可安全确定的阶段；只有遇到无法确认的环境、权限、写入范围、人工登录或不可信脚本时才一次性提问，不要每一步都询问用户。
 ---
@@ -7,7 +7,7 @@ description: 使用 crosscheck 接入、配置、探测和测试业务系统，�
 
 把 Agent 作为编排者，把仓库中的确定性 CLI 作为执行工具。不要让模型替代测试引擎做断言、数据库清理或结果判定。
 
-对于 URL + 原始用例的 UI-first 请求，优先使用 `crosscheck ui-run --url <url> --cases <file> --workspace <workspace>`。该入口按 URL 自动发现 workspace profile、业务 Skill 和 session；有有效 profile 时复用/续期登录态。业务知识以 workspace `business_skills/<skill-id>/manifest.yaml` 为入口，Skill 包引用的页面、动作、断言、工作流和业务规则须按版本与证据治理。不要把系统专属规则塞进通用 Crosscheck Skill。
+对于用户给出 URL + 自然语言 UI 测试目标的请求，优先使用 `crosscheck test <url> <text> --workspace <workspace>`；URL 也可以放在自然语言句子中。该入口默认立即执行探索并报告结果，不自动保存回归资产；只有用户明确要求复用时才追加 `--save-regression`。需要角色、写入授权或精细运行参数时再使用 `crosscheck agent-test --url <url> --instruction <text> --workspace <workspace>`。该入口自动发现 workspace profile、业务 Skill 和 session，执行观察→规划→动作→验证闭环。不要要求用户先准备 Excel、canonical suite、selector 或 Playwright 代码。首次 SSO/MFA/CAPTCHA、未确认环境、写入范围和业务规则不确定时才一次性请求人工信息。对于已有 Excel/CSV/JSON 原始用例，才使用 `crosscheck ui-run --url <url> --cases <file> --workspace <workspace>`。
 
 默认唯一业务执行入口是 `run_suite.py`。Excel/CSV/JSON/case-gen YAML 只能先导入 canonical suite；旧 `run_batch.py --excel` 仅用于兼容和迁移诊断，不得用于新套件正式验收。
 
@@ -234,3 +234,4 @@ pilot 完成后不要停下来等待用户。满足以下条件时自动进入�
 - CLI 选择与参数：`references/commands.md`
 - workspace 配置和秘密处理：`references/workspace.md`
 - 报告解释与输出格式：`references/reporting.md`
+

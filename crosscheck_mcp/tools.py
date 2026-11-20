@@ -63,6 +63,16 @@ def task_create(arguments: dict[str, Any]) -> dict[str, Any]:
         "operation": arguments.get("operation"),
         "workspace": workspace,
         "suite": arguments.get("suite"),
+        "request": {
+            "url": arguments.get("url"),
+            "instruction": arguments.get("instruction"),
+            "role": arguments.get("role") or "default",
+            "risk_policy": arguments.get("risk_policy") or "read_only",
+            "allow_write": arguments.get("allow_write"),
+            "write_scope": arguments.get("write_scope"),
+            "persist_regression": arguments.get("persist_regression", True),
+            "session": arguments.get("session"),
+        },
         "scope": {"cases": arguments.get("cases", [])},
         "execution": {
             "pilot_size": arguments.get("pilot_size"),

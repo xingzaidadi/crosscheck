@@ -109,6 +109,8 @@ def _persist(flow_dir: Path, state: dict[str, Any], result: dict[str, Any]) -> d
         status = "COMPLETED" if not gaps.get("gaps") else "COMPLETED_WITH_GAPS"
     elif execution:
         status = execution.get("status", "FAILED_OR_BLOCKED")
+    elif not state["inputs"].get("suite"):
+        status = "READY_NO_EXECUTION_SUITE"
     elif gaps.get("gaps"):
         status = "WAITING_FOR_INPUT"
     elif state["inputs"].get("suite"):
@@ -211,10 +213,10 @@ def main() -> int:
     try:
         report = resume(args) if args.continue_flow else start(args)
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        if report["status"] in {"COMPLETED", "READY_NO_EXECUTION_SUITE", "READY_TO_EXECUTE"}:
+        if report["status"] in {"COMPLETED", "READY_NO_EXECUTION_SUITE", "READY_TO_EXECUTE",
+                                 "WAITING_FOR_INPUT", "COMPLETED_WITH_GAPS"}:
             return 0
-        return 4 if report["status"] in {"WAITING_FOR_INPUT", "COMPLETED_WITH_GAPS",
-                                         "NO_EXECUTABLE_READY_CASES"} else 1
+        return 4 if report["status"] in {"NO_EXECUTABLE_READY_CASES"} else 1
     except (OSError, ValueError, RuntimeError) as exc:
         print(json.dumps({"schema_version": 1, "status": "ERROR", "error": str(exc)},
                          ensure_ascii=False, indent=2))

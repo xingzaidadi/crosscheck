@@ -1,0 +1,10 @@
+scenarios:
+  - id: orders-readonly-detail
+    url: https://test.example.com/orders
+    instruction: 进入订单管理，查询处理中订单，打开第一条记录，确认详情页只读
+    role: operator
+    max_steps: 30
+  - id: customer-search
+    url: https://test.example.com/customers
+    instruction: 在客户名称输入框输入华东并查询，确认结果包含华东
+    role: operator

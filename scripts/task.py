@@ -35,6 +35,26 @@ def _emit(payload: dict, *, pretty: bool = False) -> None:
 
 def _runner(task) -> dict:
     execution = task.execution
+    if task.operation == "agent_test":
+        request = task.request
+        command = [sys.executable, str(ROOT / "scripts" / "agent_test.py"),
+                   "--workspace", task.workspace, "--url", str(request.get("url") or ""),
+                   "--instruction", str(request.get("instruction") or "")]
+        for key in ("role", "session", "risk_policy", "write_scope"):
+            value = request.get(key)
+            if value:
+                command.extend(["--" + key.replace("_", "-"), str(value)])
+        if request.get("allow_write"):
+            command.append("--allow-write")
+        if request.get("persist_regression") is False:
+            command.append("--no-persist")
+        completed = subprocess.run(command, cwd=ROOT, capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace")
+        log_path = Path(task.workspace) / ".crosscheck" / "tasks" / task.task_id / "execution.log"
+        log_path.write_text(completed.stdout + completed.stderr, encoding="utf-8")
+        status = "completed" if completed.returncode == 0 else "blocked" if completed.returncode == 4 else "failed"
+        return {"status": status, "exit_code": completed.returncode, "log_path": str(log_path),
+                "error": "" if completed.returncode == 0 else _last_line(completed.stdout + completed.stderr)}
     command = [sys.executable, str(ROOT / "run_suite.py"), "--suite", task.suite,
                "--workspace", task.workspace]
     if task.operation == "plan":

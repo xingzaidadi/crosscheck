@@ -41,7 +41,14 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "properties": {
             "workspace": _WORKSPACE_PROP,
             "suite": {"type": "string", "description": "workspace 内 canonical 套件目录(含 suite.yaml)。"},
-            "operation": {"type": "string", "enum": ["plan", "run"]},
+            "operation": {"type": "string", "enum": ["plan", "run", "agent_test"]},
+            "url": {"type": "string"},
+            "instruction": {"type": "string"},
+            "role": {"type": "string"},
+            "risk_policy": {"type": "string", "enum": ["read_only", "authorized_write"]},
+            "persist_regression": {"type": "boolean"},
+            "session": {"type": "string"},
+            "write_scope": {"type": "string"},
             "task_id": _TASK_ID_PROP,
             "pilot_size": {"type": "integer", "minimum": 0},
             "ensure_login": {"type": "boolean"},
@@ -52,7 +59,7 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "allow_write": {"type": "boolean"},
             "execute": {"type": "boolean", "description": "true 则创建后立即执行。"},
         },
-        "required": ["workspace", "suite", "operation"],
+        "required": ["workspace", "operation"],
     },
     "crosscheck_task_status": {
         "type": "object",
@@ -128,7 +135,7 @@ RESERVED_TOOLS = frozenset(INPUT_SCHEMAS) - TASK_BACKED_TOOLS
 def _stage_for(operation: str, state: str) -> str:
     if state in {"completed", "blocked", "failed", "cancelled"}:
         return state
-    return "plan" if operation == "plan" else "run"
+    return "plan" if operation == "plan" else "agent_test" if operation == "agent_test" else "run"
 
 
 def _blockers_for(record: dict[str, Any]) -> list[dict[str, Any]]:

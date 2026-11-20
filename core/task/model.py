@@ -32,6 +32,7 @@ class TaskRecord:
     operation: str
     workspace: str
     suite: str
+    request: dict[str, Any] = field(default_factory=dict)
     state: TaskState = TaskState.CREATED
     schema_version: int = TASK_SCHEMA_VERSION
     scope: dict[str, Any] = field(default_factory=dict)

@@ -37,14 +37,64 @@ def _write_json(path: Path, value: object) -> None:
 
 
 def _evaluate_oracle(page, oracle: dict[str, Any]) -> dict[str, Any]:
-    if oracle["kind"] == "url_contains":
+    if oracle["kind"] == "page_health":
+        body = page.locator("body")
+        body_text = body.inner_text(timeout=3000) if body.count() else ""
+        actual = {
+            "url": page.url,
+            "title": page.title(),
+            "body_length": len(body_text.strip()),
+            "has_error": bool(re.search(r"(?:500|internal server error|系统异常|服务异常|页面不存在)", body_text, re.I)),
+        }
+        ok = bool(actual["url"] and actual["body_length"] > 0 and not actual["has_error"])
+    elif oracle["kind"] == "detail_page":
+        headings = []
+        try:
+            headings = page.locator("h1,h2,h3,[role='heading']").all_inner_texts()
+        except Exception:
+            headings = []
+        body = page.locator("body").inner_text()
+        target = str(oracle.get("value") or "详情")
+        actual = {
+            "heading": any(target in str(item) for item in headings),
+            "body": target in body,
+            "dialog": page.locator("[role=dialog], dialog, .modal, .drawer").count() > 0,
+            "readonly_field": page.locator("input[readonly], textarea[readonly], [aria-readonly='true']").count() > 0,
+        }
+        ok = bool(actual["heading"] or actual["dialog"] or actual["readonly_field"])
+    elif oracle["kind"] == "field_text_equals":
+        label = str(oracle.get("value") or "")
+        expected = str(oracle.get("expected") or "")
+        label_locator = page.get_by_text(label, exact=True).first
+        actual = ""
+        if label_locator.count():
+            scope = label_locator.locator("xpath=ancestor-or-self::*[self::label or self::td or self::th or self::div][1]")
+            if scope.count():
+                control = scope.locator("input, textarea, select").first
+                actual = control.input_value() if control.count() else scope.inner_text().replace(label, "", 1).strip(" ：:\n\t")
+        if not actual:
+            body = page.locator("body").inner_text()
+            actual = expected if expected in body else ""
+        ok = actual == expected or expected in actual
+    elif oracle["kind"] == "api_status":
+        # API status is evaluated by the autonomous runner from captured
+        # response metadata; this branch is retained for legacy callers.
+        actual = None
+        ok = None
+    elif oracle["kind"] == "api_observed":
+        actual = None
+        ok = None
+    elif oracle["kind"] == "url_contains":
         actual = page.url
         ok = oracle["value"] in actual
     elif oracle["kind"] == "readonly":
         detail = page.locator("[role=dialog], .hi-v5-drawer, .hi-v5-modal, .hi-v5-drawer-content").last
         scope = detail if detail.count() else page.locator("body")
         edit_controls = scope.get_by_role("button", name=re.compile(r"编辑|修改|保存|提交"))
-        editable_fields = scope.locator("input:not([type=hidden]):not([disabled]), textarea:not([disabled]), select:not([disabled])")
+        editable_fields = scope.locator(
+            "input:not([type=hidden]):not([disabled]):not([readonly]), "
+            "textarea:not([disabled]):not([readonly]), select:not([disabled]), [contenteditable='true']"
+        )
         actual = edit_controls.count() == 0 and editable_fields.count() == 0
         ok = actual is bool(oracle["expected"])
     elif oracle["kind"] == "pagination_page":

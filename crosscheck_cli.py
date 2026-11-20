@@ -93,6 +93,66 @@ def main() -> int:
     ui_run.add_argument("--no-session-refresh", action="store_true")
     ui_run.add_argument("--visual-baselines")
     ui_run.add_argument("--visual-threshold", type=float, default=0.0)
+    agent_test = sub.add_parser("agent-test", help="自然语言驱动的自主 UI 测试")
+    agent_test.add_argument("--url", required=True)
+    agent_test.add_argument("--instruction", required=True)
+    agent_test.add_argument("--answer", action="append", default=[], help="回答 Agent 的澄清问题，可重复")
+    agent_test.add_argument("--workspace", default="workspace")
+    agent_test.add_argument("--role", default="default")
+    agent_test.add_argument("--session")
+    agent_test.add_argument("--risk-policy", choices=("read_only", "authorized_write"), default="read_only")
+    agent_test.add_argument("--allow-write", action="store_true")
+    agent_test.add_argument("--write-scope")
+    agent_test.add_argument("--run-id")
+    agent_test.add_argument("--max-steps", type=int, default=20)
+    agent_test.add_argument("--headed", action="store_true")
+    agent_test.add_argument("--save-regression", action="store_true", help="保存成功轨迹供后续回归")
+    agent_test.add_argument("--no-persist", action="store_true", help=argparse.SUPPRESS)
+    agent_test.add_argument("--no-session-refresh", action="store_true")
+    agent_test.add_argument("--history", action="store_true", help="显示最近的自然语言测试历史")
+    test = sub.add_parser("test", help="自然语言优先的统一测试入口")
+    test.add_argument("request", nargs="*", help="URL 和自然语言目标；URL 可放在句子任意位置")
+    test.add_argument("--cases", help="xlsx/csv/json/yaml 用例文件；提供后进入用例驱动模式")
+    test.add_argument("--url", dest="url_option")
+    test.add_argument("--answer", action="append", default=[], help="回答 Agent 的澄清问题，可重复")
+    test.add_argument("--source", action="append", help="代码、技术方案、数据库 schema 或目录，可重复")
+    test.add_argument("--only")
+    test.add_argument("--plan-only", action="store_true")
+    test.add_argument("--workspace", default="workspace")
+    test.add_argument("--headed", action="store_true")
+    test.add_argument("--max-steps", type=int, default=30)
+    test.add_argument("--session")
+    test.add_argument("--role", default="default")
+    test.add_argument("--risk-policy", choices=("read_only", "authorized_write"), default="read_only")
+    test.add_argument("--allow-write", action="store_true")
+    test.add_argument("--write-scope")
+    test.add_argument("--run-id")
+    test.add_argument("--save-regression", action="store_true", help="保存成功轨迹供后续回归")
+    test.add_argument("--no-persist", action="store_true", help=argparse.SUPPRESS)
+    test.add_argument("--no-session-refresh", action="store_true")
+    test.add_argument("--history", action="store_true", help="显示最近的自然语言测试历史")
+    maturity = sub.add_parser("maturity-acceptance", help="验收自主 UI 测试四阶段成熟度")
+    maturity.add_argument("--samples", required=True)
+    maturity.add_argument("--output")
+    benchmark = sub.add_parser("ui-agent-benchmark", help="运行真实浏览器自主 UI 成熟度基准")
+    benchmark.add_argument("--output", required=True)
+    benchmark.add_argument("--repetitions", type=int, default=20)
+    real_acceptance = sub.add_parser("real-ui-acceptance", help="运行真实系统自然语言 UI 验收清单")
+    real_acceptance.add_argument("--manifest", required=True)
+    real_acceptance.add_argument("--output", required=True)
+    real_acceptance.add_argument("--workspace", default="workspace")
+    case_run = sub.add_parser("case-run", help="以用例为主线执行自主 UI 测试并生成覆盖报告")
+    case_run.add_argument("--cases", required=True, help="xlsx/csv/json/yaml 用例文件")
+    case_run.add_argument("--url", required=True)
+    case_run.add_argument("--workspace", default="workspace")
+    case_run.add_argument("--source", action="append", help="代码、技术方案、数据库 schema 或目录，可重复")
+    case_run.add_argument("--only")
+    case_run.add_argument("--role", default="default")
+    case_run.add_argument("--session")
+    case_run.add_argument("--run-id")
+    case_run.add_argument("--max-steps", type=int, default=30)
+    case_run.add_argument("--headed", action="store_true")
+    case_run.add_argument("--plan-only", action="store_true")
 
     ui_onboard = sub.add_parser("ui-onboard", help="用系统信息生成 profile、UI 应用模型和接入任务")
     ui_onboard.add_argument("--workspace", default="workspace")
@@ -225,6 +285,82 @@ def main() -> int:
                                                            "skill", "run_id", "only", "allow_write", "write_scope",
                                                            "headed", "ensure_login", "no_session_refresh",
                                                            "visual_baselines", "visual_threshold"]))
+    if args.command == "agent-test":
+        if args.history:
+            from core.ui_agent.capabilities import history_summary
+            import json
+            print(json.dumps(history_summary(args.workspace), ensure_ascii=False, indent=2))
+            return 0
+        return _run("scripts/agent_test.py", _forward(args, ["url", "instruction", "workspace", "role",
+                                                                "session", "risk_policy", "allow_write", "write_scope",
+                                                                "run_id", "max_steps", "headed", "save_regression", "no_persist",
+                                                                "no_session_refresh", "interactive_login"])
+                     + sum((["--answer", answer] for answer in args.answer or []), []))
+    if args.command == "test":
+        if args.history:
+            from core.ui_agent.capabilities import history_summary
+            import json
+            print(json.dumps(history_summary(args.workspace), ensure_ascii=False, indent=2))
+            return 0
+        request_text = " ".join(args.request or []).strip()
+        url_match = __import__("re").search(r"(?:https?://|file:)[^\s，。；;]+", request_text)
+        target_url = args.url_option or (url_match.group(0) if url_match else "")
+        instruction = request_text
+        if url_match:
+            instruction = " ".join(
+                (request_text[:url_match.start()] + " " + request_text[url_match.end():]).split()
+            )
+        if args.cases:
+            if not target_url:
+                parser.error("test --cases requires --url")
+            values = ["--cases", args.cases, "--url", target_url,
+                      "--workspace", args.workspace, "--max-steps", str(args.max_steps),
+                      "--role", args.role, "--risk-policy", args.risk_policy]
+            for name in ("session", "write_scope", "run_id"):
+                value = getattr(args, name, None)
+                if value:
+                    values.extend(["--" + name.replace("_", "-"), str(value)])
+            for name in ("allow_write", "no_persist", "no_session_refresh"):
+                if getattr(args, name, False):
+                    values.append("--" + name.replace("_", "-"))
+            if args.only:
+                values.extend(["--only", args.only])
+            if args.headed:
+                values.append("--headed")
+            if args.plan_only:
+                values.append("--plan-only")
+            for source in args.source or []:
+                values.extend(["--source", source])
+            return _run("scripts/case_run.py", values)
+        if not target_url or not instruction:
+            parser.error("test requires a URL and a natural-language goal, for example: crosscheck test https://test.example.com 查询订单1001")
+        return _run("scripts/agent_test.py", ["--url", target_url,
+                                                "--instruction", instruction,
+                                               "--workspace", args.workspace,
+                                               "--role", args.role,
+                                               "--risk-policy", args.risk_policy,
+                                                "--max-steps", str(args.max_steps)]
+                     + sum((["--answer", answer] for answer in args.answer or []), [])
+                    + (["--session", args.session] if args.session else [])
+                    + (["--write-scope", args.write_scope] if args.write_scope else [])
+                    + (["--run-id", args.run_id] if args.run_id else [])
+                    + (["--allow-write"] if args.allow_write else [])
+                    + (["--headed"] if args.headed else [])
+                    + (["--save-regression"] if args.save_regression else [])
+                    + (["--no-persist"] if args.no_persist else [])
+                    + (["--no-session-refresh"] if args.no_session_refresh else []))
+    if args.command == "maturity-acceptance":
+        return _run("scripts/maturity_acceptance.py", _forward(args, ["samples", "output"]))
+    if args.command == "ui-agent-benchmark":
+        return _run("scripts/ui_agent_benchmark.py", _forward(args, ["output", "repetitions"]))
+    if args.command == "real-ui-acceptance":
+        return _run("scripts/real_ui_acceptance.py", _forward(args, ["manifest", "output", "workspace"]))
+    if args.command == "case-run":
+        values = _forward(args, ["cases", "url", "workspace", "only", "role", "session", "run_id",
+                                 "max_steps", "headed", "plan_only"])
+        for source in args.source or []:
+            values.extend(["--source", source])
+        return _run("scripts/case_run.py", values)
     if args.command == "ui-onboard":
         values = _forward(args, ["workspace", "system", "url", "cases", "login_mode",
                                  "allow_write", "cleanup"])

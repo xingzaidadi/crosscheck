@@ -11,7 +11,7 @@ from core.task.store import TaskStore
 
 
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
-SUPPORTED_OPERATIONS = {"plan", "run"}
+SUPPORTED_OPERATIONS = {"plan", "run", "agent_test"}
 
 
 class TaskValidationError(ValueError):
@@ -37,14 +37,21 @@ class TaskService:
         configured_workspace = Path(specification.get("workspace") or self.workspace).resolve()
         if configured_workspace != self.workspace:
             raise TaskValidationError("task workspace must match the selected task store workspace")
-        suite = self._resolve_suite(specification.get("suite"))
+        suite = self._resolve_suite(specification.get("suite"), required=operation != "agent_test")
+        request = dict(specification.get("request") or {})
+        if operation == "agent_test":
+            if not str(request.get("url") or "").strip():
+                raise TaskValidationError("agent_test request.url is required")
+            if not str(request.get("instruction") or "").strip():
+                raise TaskValidationError("agent_test request.instruction is required")
         if (self.store.task_dir(task_id) / "task.json").exists():
             raise TaskValidationError(f"task already exists: {task_id}")
         task = TaskRecord(
             task_id=task_id,
             operation=operation,
             workspace=str(self.workspace),
-            suite=str(suite),
+            suite=str(suite) if suite else "",
+            request=request,
             scope=dict(specification.get("scope") or {}),
             execution=dict(specification.get("execution") or {}),
             authorization=dict(specification.get("authorization") or {}),
@@ -104,9 +111,11 @@ class TaskService:
     def events(self, task_id: str) -> list[dict[str, Any]]:
         return self.store.events(task_id)
 
-    def _resolve_suite(self, value: Any) -> Path:
+    def _resolve_suite(self, value: Any, *, required: bool = True) -> Path | None:
         if not value:
-            raise TaskValidationError("suite is required")
+            if required:
+                raise TaskValidationError("suite is required")
+            return None
         suite = Path(str(value))
         if not suite.is_absolute():
             suite = self.workspace / suite
