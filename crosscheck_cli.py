@@ -275,6 +275,17 @@ def main() -> int:
     review_gate.add_argument("--base-ref", default="main")
     review_gate.add_argument("--repo", default=".")
     review_gate.add_argument("--output")
+    rule_mine = sub.add_parser("rule-mine", help="从运行证据提炼 REVIEW.md 规则候选（默认只提议）")
+    rule_mine.add_argument("--runs", required=True)
+    rule_mine.add_argument("--handoffs")
+    rule_mine.add_argument("--review", default="REVIEW.md")
+    rule_mine.add_argument("--min-occurrences", type=int, default=2)
+    rule_mine.add_argument("--output")
+    rule_mine.add_argument("--apply", action="store_true")
+    rule_prune = sub.add_parser("rule-prune", help="提议可清理的 REVIEW.md 规则（默认只提议，不删）")
+    rule_prune.add_argument("--review", default="REVIEW.md")
+    rule_prune.add_argument("--usage")
+    rule_prune.add_argument("--output")
     gaps = sub.add_parser("close-gaps", help="Generate review-only bindings for suite gaps")
     gaps.add_argument("--suite", required=True)
     gaps.add_argument("--workspace", default="workspace")
@@ -495,6 +506,11 @@ def main() -> int:
                                                                "mode"]))
     if args.command == "review-gate":
         return _run("scripts/review_gate.py", _forward(args, ["base_ref", "repo", "output"]))
+    if args.command == "rule-mine":
+        return _run("scripts/rule_mine.py", _forward(args, ["runs", "handoffs", "review",
+                                                            "min_occurrences", "output", "apply"]))
+    if args.command == "rule-prune":
+        return _run("scripts/rule_prune.py", _forward(args, ["review", "usage", "output"]))
     if args.command == "close-gaps":
         return _run("scripts/gap_closure.py", _forward(args, ["suite", "workspace", "output"]))
     if args.command == "evidence-audit":
