@@ -12,6 +12,7 @@ from core.suite_context import SuiteContext
 from core.suite_dsl import assertion_ids, case_content_hash, execution_id, score_case, source_hash
 from core.case_v2 import migrate_v1, to_legacy_execution, validate_v2
 from core.suite_bindings import resolve_bindings
+from core.approved_asset_execution import inject_approved_assets
 
 
 def compile_case(case: dict[str, Any], suite: dict[str, Any], context: SuiteContext) -> ExecSpec:
@@ -25,6 +26,7 @@ def compile_case(case: dict[str, Any], suite: dict[str, Any], context: SuiteCont
         case = migrate_v1(case)
     knowledge_dependencies = _resolve_knowledge_dependencies(original, context)
     case = resolve_bindings(case, suite, context)
+    case, approved_asset_metadata = inject_approved_assets(case, context.suite_dir)
     connector_hash = ""
     if suite.get("connector"):
         from core.suite_dsl import load_yaml
@@ -98,6 +100,7 @@ def compile_case(case: dict[str, Any], suite: dict[str, Any], context: SuiteCont
             "knowledge_dependencies": knowledge_dependencies,
             "assertion_ids": required_ids,
             "assertion_bindings": bindings,
+            "approved_assets": approved_asset_metadata,
             "raw_v2": original if int(original.get("schema_version") or 1) >= 2 else {},
         },
     )

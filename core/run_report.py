@@ -251,6 +251,8 @@ table.dt th{{background:#f0f3f6}}
                    "assertion_coverage": (len(r.executed_assertions) / len(r.required_assertions)
                                           if r.required_assertions else None),
                    "cleanup_ok": r.cleanup_ok,
+                   "failure_class": r.failure_class,
+                   "asset_usage": (r.report or {}).get("asset_usage") or {},
                    "note": (r.details[0] if r.details else "")} for r in results],
         }, ensure_ascii=False, indent=2), encoding="utf-8")
     return out

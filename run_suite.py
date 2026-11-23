@@ -100,6 +100,12 @@ def main() -> int:
         append_event(run_dir, run_id=run_id, case_id=spec.case_id,
                      state="running", assertion_ids=list((spec.raw or {}).get("assertion_ids") or []))
         result = finalize_result(spec, execute(spec, False, run_dir, False, False, phase=phase), phase=phase)
+        asset_usage = (spec.raw or {}).get("approved_assets") or {}
+        if asset_usage:
+            result.report = {
+                **(result.report or {}),
+                "asset_usage": asset_usage,
+            }
         append_event(run_dir, run_id=run_id, case_id=spec.case_id,
                      state="succeeded" if result.verdict.value == "pass" else "failed",
                      failure_class=result.failure_class,

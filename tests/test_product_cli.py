@@ -16,7 +16,9 @@ def main() -> None:
                                  capture_output=True, text=True, encoding="utf-8", errors="replace")
     assert help_result.returncode == 0
     for command in ("doctor", "init", "onboard", "plan", "run", "knowledge", "dashboard", "map",
-                    "readiness", "self-test", "demo", "release", "task"):
+                    "readiness", "product-readiness", "product-remediation", "product-remediation-review",
+                    "asset-health", "asset-recertify", "quality-gate", "domain-capability", "soak-report",
+                    "self-test", "demo", "release", "task"):
         assert command in help_result.stdout
     with tempfile.TemporaryDirectory() as directory:
         workspace = Path(directory) / "workspace"

@@ -9,6 +9,14 @@ from typing import Callable
 
 from core.interfaces import CaseResult, Verdict
 from core.suite_compiler import plan_hash
+from core.circuit_breaker import (
+    BreakerPolicy,
+    BreakerState,
+    append_handoff,
+    build_handoff,
+    observe,
+)
+from core.failure_class import classify_verdict
 
 
 @dataclass
@@ -29,10 +37,13 @@ def run_pipeline(
     registry=None,
     run_id: str | None = None,
     environment: str = "unknown",
+    breaker_policy: BreakerPolicy | None = None,
 ) -> PipelineOutcome:
     root = Path(run_dir)
     root.mkdir(parents=True, exist_ok=True)
     checkpoint = root / "checkpoint.json"
+    breaker_path = root / "breaker_state.json"
+    breaker_state = _load_breaker_state(breaker_path) if breaker_policy is not None else None
     identity_path = root / "plan_identity.json"
     identity = plan_hash(specs) if all(hasattr(spec, "raw") and hasattr(spec, "__dataclass_fields__") for spec in specs) else str([
         (spec.case_id, spec.mode) for spec in specs])
@@ -57,6 +68,17 @@ def run_pipeline(
         if spec.case_id in completed:
             if completed[spec.case_id].get("verdict") == Verdict.PASS.value:
                 pilot_passed = True
+            elif breaker_policy is not None and breaker_state is not None:
+                # A previously-completed non-PASS case is being resumed. It is skipped
+                # below, but the breaker must still count it — otherwise resume=True
+                # (the default) makes the breaker a no-op for a persistently failing case.
+                prior = _result_from_dict(completed[spec.case_id]["result"])
+                tripped = _observe_and_maybe_handoff(
+                    breaker_state, breaker_policy, breaker_path, root,
+                    spec=spec, result=prior, registry=registry, registry_run_id=registry_run_id,
+                )
+                if tripped is not None:
+                    return PipelineOutcome(results, True, tripped)
             continue
         try:
             result = execute(spec)
@@ -82,6 +104,14 @@ def run_pipeline(
         completed[spec.case_id] = {"verdict": result.verdict.value, "cleanup_ok": result.cleanup_ok,
                                    "result": _result_to_dict(result)}
         _save_checkpoint(checkpoint, completed)
+
+        if breaker_policy is not None and breaker_state is not None:
+            tripped = _observe_and_maybe_handoff(
+                breaker_state, breaker_policy, breaker_path, root,
+                spec=spec, result=result, registry=registry, registry_run_id=registry_run_id,
+            )
+            if tripped is not None:
+                return PipelineOutcome(results, True, tripped)
 
         if not result.cleanup_ok:
             if registry is not None:
@@ -112,6 +142,76 @@ def run_pipeline(
     if registry is not None:
         registry.set_run_status(registry_run_id, "completed")
     return PipelineOutcome(results)
+
+
+def _observe_and_maybe_handoff(
+    state: BreakerState,
+    policy: BreakerPolicy,
+    breaker_path: Path,
+    root: Path,
+    *,
+    spec,
+    result: CaseResult,
+    registry,
+    registry_run_id: str,
+) -> str | None:
+    """Record one case outcome in the breaker; on trip, write handoff and return a stop reason.
+
+    Returns ``None`` when the run should continue, or the stop reason string when it trips.
+    """
+    failure_class = _failure_class_for(result)
+    decision = observe(
+        state, policy,
+        case_id=spec.case_id, failure_class=failure_class,
+        success=result.verdict is Verdict.PASS,
+    )
+    _save_breaker_state(breaker_path, state)
+    if not decision.tripped:
+        return None
+    packet = build_handoff(
+        decision,
+        run_id=registry_run_id,
+        last_verdict=result.verdict.value,
+        last_details=[detail[:500] for detail in result.details],  # bounded; file is internal-sensitive
+        evidence_refs=[str((root / "events.jsonl"))],
+        suggested_action="human_review_repeated_failure",
+    )
+    append_handoff(root, packet)
+    if registry is not None:
+        registry.set_run_status(registry_run_id, "stopped")
+    return f"BLOCKED_NEEDS_HUMAN: {spec.case_id}/{decision.failure_class}"
+
+
+def _failure_class_for(result: CaseResult):
+    # Cleanup failures must stay a CLEANUP_FAILED signal even if an upstream
+    # failure_class field says otherwise — a dirty environment is more urgent
+    # than a repeated-failure trip and is handled by the cleanup stop path.
+    if not result.cleanup_ok:
+        from core.failure_class import FailureClass
+        return FailureClass.CLEANUP_FAILED
+    if result.failure_class:
+        try:
+            from core.failure_class import FailureClass
+            return FailureClass(result.failure_class)
+        except ValueError:
+            pass
+    return classify_verdict(result.verdict.value, cleanup_ok=result.cleanup_ok)
+
+
+def _load_breaker_state(path: Path) -> BreakerState:
+    if not path.exists():
+        return BreakerState()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"breaker state corrupted: {path}") from exc
+    return BreakerState.from_dict(data)
+
+
+def _save_breaker_state(path: Path, state: BreakerState) -> None:
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(state.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(path)
 
 
 def _pilot_order(specs: list, pilot_size: int) -> list:

@@ -203,6 +203,72 @@ def main() -> int:
     readiness.add_argument("--suite", required=True)
     readiness.add_argument("--workspace", default="workspace")
     readiness.add_argument("--output")
+    product_readiness = sub.add_parser("product-readiness", help="评估业务复杂度、自动化成熟度和生产就绪度")
+    product_readiness.add_argument("--suite", required=True)
+    product_readiness.add_argument("--workspace", default="workspace")
+    product_readiness.add_argument("--run-report")
+    product_readiness.add_argument("--output")
+    product_readiness.add_argument("--markdown")
+    remediation = sub.add_parser("product-remediation", help="生成前置状态和业务 Oracle 的审核草稿")
+    remediation.add_argument("--suite", required=True)
+    remediation.add_argument("--workspace", default="workspace")
+    remediation.add_argument("--output")
+    remediation.add_argument("--draft-dir")
+    remediation_review = sub.add_parser("product-remediation-review", help="审核并晋级整改草稿")
+    remediation_review.add_argument("--plan", required=True)
+    remediation_review.add_argument("--suite", required=True)
+    remediation_review.add_argument("--asset-id", required=True)
+    remediation_review.add_argument("--reviewer", required=True)
+    remediation_review.add_argument("--decision", choices=("approve", "reject"), required=True)
+    remediation_review.add_argument("--updates")
+    remediation_review.add_argument("--evidence", action="append", default=[])
+    asset_health = sub.add_parser("asset-health", help="聚合 Fixture/Oracle 运行健康度")
+    asset_health.add_argument("--suite", required=True)
+    asset_health.add_argument("--output")
+    asset_health.add_argument("--degrade-after", type=int, default=2)
+    asset_health.add_argument("--unhealthy-after", type=int, default=3)
+    asset_health.add_argument("--update-assets", action="store_true")
+    domain_cap = sub.add_parser("domain-capability", help="评估业务域能力包覆盖率")
+    domain_cap.add_argument("--suite", required=True)
+    domain_cap.add_argument("--workspace", default="workspace")
+    domain_cap.add_argument("--registry")
+    domain_cap.add_argument("--environment", default="test")
+    domain_cap.add_argument("--output")
+    soak_report = sub.add_parser("soak-report", help="聚合连续运行为 soak 稳定性报告")
+    soak_report.add_argument("--suite", required=True)
+    soak_report.add_argument("--min-runs", type=int, default=5)
+    soak_report.add_argument("--output")
+    soak_report.add_argument("--summary-output")
+    recertify = sub.add_parser("asset-recertify", help="重新认证 degraded/unhealthy Fixture 或 Oracle")
+    recertify.add_argument("--suite", required=True)
+    recertify.add_argument("--asset-type", choices=("fixture", "oracle"), required=True)
+    recertify.add_argument("--asset-id", required=True)
+    recertify.add_argument("action", choices=("request", "submit", "approve"))
+    recertify.add_argument("--requester")
+    recertify.add_argument("--reason")
+    recertify.add_argument("--submitter")
+    recertify.add_argument("--soak-runs", type=int)
+    recertify.add_argument("--passed-runs", type=int)
+    recertify.add_argument("--evidence", action="append", default=[])
+    recertify.add_argument("--reviewer")
+    recertify.add_argument("--minimum-soak-runs", type=int, default=5)
+    quality_gate = sub.add_parser("quality-gate", help="执行统一业务质量门禁")
+    quality_gate.add_argument("--suite", required=True)
+    quality_gate.add_argument("--workspace", default="workspace")
+    quality_gate.add_argument("--run-report")
+    quality_gate.add_argument("--asset-report")
+    quality_gate.add_argument("--output")
+    quality_gate.add_argument("--markdown")
+    quality_gate.add_argument("--min-score", type=float, default=75.0)
+    quality_gate.add_argument("--min-maturity", choices=("M0", "M1", "M2", "M3", "M4"), default="M3")
+    quality_gate.add_argument("--min-preparation", type=float, default=1.0)
+    quality_gate.add_argument("--min-oracle", type=float, default=1.0)
+    quality_gate.add_argument("--max-inconclusive", type=float, default=0.10)
+    quality_gate.add_argument("--max-degraded-assets", type=int, default=0)
+    quality_gate.add_argument("--max-unhealthy-assets", type=int, default=0)
+    quality_gate.add_argument("--min-capability-coverage", type=float, default=1.0)
+    quality_gate.add_argument("--allow-missing-capability-pack", action="store_true")
+    quality_gate.add_argument("--allow-no-run", action="store_true")
     gaps = sub.add_parser("close-gaps", help="Generate review-only bindings for suite gaps")
     gaps.add_argument("--suite", required=True)
     gaps.add_argument("--workspace", default="workspace")
@@ -388,6 +454,38 @@ def main() -> int:
         return _run("scripts/system_map.py", _forward(args, ["workspace", "output"]))
     if args.command == "readiness":
         return _run("scripts/suite_readiness.py", _forward(args, ["suite", "workspace", "output"]))
+    if args.command == "product-readiness":
+        return _run("scripts/product_readiness.py", _forward(args, ["suite", "workspace", "run_report", "output", "markdown"]))
+    if args.command == "product-remediation":
+        return _run("scripts/product_remediation.py", _forward(args, ["suite", "workspace", "output", "draft_dir"]))
+    if args.command == "product-remediation-review":
+        values = _forward(args, ["plan", "suite", "asset_id", "reviewer", "decision", "updates"])
+        for evidence in args.evidence:
+            values.extend(["--evidence", evidence])
+        return _run("scripts/product_remediation_review.py", values)
+    if args.command == "asset-health":
+        return _run("scripts/asset_health.py", _forward(args, ["suite", "output", "degrade_after",
+                                                               "unhealthy_after", "update_assets"]))
+    if args.command == "domain-capability":
+        return _run("scripts/domain_capability.py", _forward(args, ["suite", "workspace", "registry",
+                                                                    "environment", "output"]))
+    if args.command == "soak-report":
+        return _run("scripts/soak_report.py", _forward(args, ["suite", "min_runs", "output", "summary_output"]))
+    if args.command == "asset-recertify":
+        values = _forward(args, ["suite", "asset_type", "asset_id"])
+        values.append(args.action)
+        values += _forward(args, ["requester", "reason", "submitter", "soak_runs", "passed_runs",
+                                   "reviewer", "minimum_soak_runs"])
+        for evidence in args.evidence:
+            values.extend(["--evidence", evidence])
+        return _run("scripts/asset_recertify.py", values)
+    if args.command == "quality-gate":
+        return _run("scripts/quality_gate.py", _forward(args, ["suite", "workspace", "run_report",
+                                                               "asset_report", "output", "markdown", "min_score",
+                                                               "min_maturity", "min_preparation", "min_oracle",
+                                                               "max_inconclusive", "max_degraded_assets",
+                                                               "max_unhealthy_assets", "min_capability_coverage",
+                                                               "allow_missing_capability_pack", "allow_no_run"]))
     if args.command == "close-gaps":
         return _run("scripts/gap_closure.py", _forward(args, ["suite", "workspace", "output"]))
     if args.command == "evidence-audit":

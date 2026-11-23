@@ -1,6 +1,10 @@
-# Implementation Status
+﻿# Implementation Status
 
 This status is the implementation-side companion to the design plans. A passing offline contract test is not external business acceptance.
+
+> Last updated: 2026-11-23 (tracks `00fa8ec`, 2026-11-20).
+>
+> Overall maturity: **M2.5 — controlled repeatable execution, transitioning toward a production-grade regression platform.** Cross-layer UI/API/DB execution, deterministic replay, evidence gates and asset lifecycle are strong; the open fronts are external multi-system acceptance, the business Oracle model, and wiring the global circuit breaker into the execution loop. See `AI测试工具产品演进方案.md` for the scored breakdown (~66/100).
 
 | Area | Status | Verification level | Notes |
 |---|---|---|---|
@@ -58,6 +62,12 @@ This status is the implementation-side companion to the design plans. A passing 
 | Visual candidate and approved-baseline comparison | Implemented for supported semantics | local_e2e | Visual requests compare against approved baselines or produce review candidates; no baseline is silently accepted. |
 | Agent run history and audit context | Implemented | contract/local_e2e | Reports include recent run history, role, risk, data strategy, planner decisions, recovery events, and connector readiness. |
 | Prototype/visual comparison | In progress | contract | Pixel/structural comparison, baseline storage/approval and `crosscheck visual-compare` / `visual-baseline` are implemented; browser capture orchestration remains. |
+| Unified product quality gate | Implemented | contract/workspace | `crosscheck quality-gate` combines maturity, preparation, Oracle, run evidence and approved-asset health with configurable CI thresholds. |
+| Business-domain capability pack and coverage | Implemented | contract/workspace | `workspace/config/capabilities.yaml` provides a validated ebuy-demand pack; `crosscheck domain-capability` classifies precondition actions and reports coverage/gaps, which the quality gate enforces. |
+| Global circuit breaker (deterministic stop) | Core implemented | contract | `core/circuit_breaker.py` counts consecutive same-class failures per `(case_id, failure_class)`, trips at a configurable threshold (default 3, env 2) into a hash-bound `BLOCKED_NEEDS_HUMAN` handoff packet; terminal classes (`SPEC_ERROR`/`SAFETY_BLOCKED`/`CLEANUP_FAILED`) never trip. Complements single-point `Unknown-state execution handling` (stop on one unknown step) by adding a recurring same-failure threshold stop. **Next action:** wire into `layer_subplans`/`pipeline_runner` self-heal loops and add a `quality-gate` blocker; currently only tests import it. |
+| Differential testing (old/new output compare) | Not started | — | No interface-level old-vs-new output diff exists; `visual-compare` covers screenshots only. The capture→model→reconcile base is a natural fit for migration/refactor regression and is tracked as a candidate P1, not yet implemented. |
+| Property-based testing (bulk boundary inputs) | Not started | — | `core/invariants.py` and `core/adversarial.py` provide invariant/adversarial seeds, but no bulk boundary-input generator exists. Deprioritized for a business-flow tool. |
+| Soak aggregation and run evidence | Implemented | contract/workspace | `crosscheck soak-report` aggregates consecutive run `summary.json` files into stability, per-case pass rate, asset usage and `soak_runs`; the quality gate auto-consumes the soak summary as run evidence. |
 
 ## Verification levels
 
