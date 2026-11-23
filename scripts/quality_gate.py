@@ -51,6 +51,7 @@ def main() -> int:
     parser.add_argument("--min-capability-coverage", type=float, default=1.0)
     parser.add_argument("--allow-missing-capability-pack", action="store_true")
     parser.add_argument("--allow-no-run", action="store_true")
+    parser.add_argument("--mode", choices=("off", "observe", "enforce"), default="enforce")
     args = parser.parse_args()
     report = build_quality_gate(
         args.suite, args.workspace, run_report=args.run_report, asset_report=args.asset_report,
@@ -60,6 +61,7 @@ def main() -> int:
         max_unhealthy_assets=args.max_unhealthy_assets, require_run_evidence=not args.allow_no_run,
         min_capability_coverage=args.min_capability_coverage,
         require_capability_pack=not args.allow_missing_capability_pack,
+        mode=args.mode, verified_via=["quality-gate"],
     )
     output = Path(args.output) if args.output else Path(args.suite) / "reports" / "quality_gate.json"
     markdown = Path(args.markdown) if args.markdown else output.with_suffix(".md")
@@ -67,8 +69,9 @@ def main() -> int:
     markdown.parent.mkdir(parents=True, exist_ok=True)
     markdown.write_text(_markdown(report), encoding="utf-8")
     print(json.dumps({"suite_id": report["suite_id"], "passed": report["passed"],
-                      "output": str(output), "markdown": str(markdown),
-                      "blockers": len(report["blockers"])}, ensure_ascii=False, indent=2))
+                      "mode": report.get("mode"), "output": str(output), "markdown": str(markdown),
+                      "blockers": len(report["blockers"]),
+                      "would_block": len(report.get("would_block") or [])}, ensure_ascii=False, indent=2))
     return 0 if report["passed"] else 2
 
 

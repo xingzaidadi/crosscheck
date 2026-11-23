@@ -269,6 +269,12 @@ def main() -> int:
     quality_gate.add_argument("--min-capability-coverage", type=float, default=1.0)
     quality_gate.add_argument("--allow-missing-capability-pack", action="store_true")
     quality_gate.add_argument("--allow-no-run", action="store_true")
+    quality_gate.add_argument("--mode", choices=("off", "observe", "enforce"), default="enforce",
+                              help="off=不判 / observe=只记录本会拦的不阻断 / enforce=拦（默认）")
+    review_gate = sub.add_parser("review-gate", help="按基线分支 REVIEW.md 对当前改动做 diff 触发审查清单")
+    review_gate.add_argument("--base-ref", default="main")
+    review_gate.add_argument("--repo", default=".")
+    review_gate.add_argument("--output")
     gaps = sub.add_parser("close-gaps", help="Generate review-only bindings for suite gaps")
     gaps.add_argument("--suite", required=True)
     gaps.add_argument("--workspace", default="workspace")
@@ -485,7 +491,10 @@ def main() -> int:
                                                                "min_maturity", "min_preparation", "min_oracle",
                                                                "max_inconclusive", "max_degraded_assets",
                                                                "max_unhealthy_assets", "min_capability_coverage",
-                                                               "allow_missing_capability_pack", "allow_no_run"]))
+                                                               "allow_missing_capability_pack", "allow_no_run",
+                                                               "mode"]))
+    if args.command == "review-gate":
+        return _run("scripts/review_gate.py", _forward(args, ["base_ref", "repo", "output"]))
     if args.command == "close-gaps":
         return _run("scripts/gap_closure.py", _forward(args, ["suite", "workspace", "output"]))
     if args.command == "evidence-audit":

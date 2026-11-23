@@ -81,3 +81,29 @@ quality-gate
 ```
 
 `quality-gate` 只负责判定和输出，不会自动批准、修复或修改资产。资产恢复必须通过 `asset-recertify` 完成。
+
+## 门禁三档：off / observe / enforce
+
+依据 Claude Code 团队验证方法论——新门禁应先进 observe 模式，先看误报再放量。`--mode`（默认 `enforce`）：
+
+- `off`：不判定，直接通过（`skipped: true`）。用于临时关闭。
+- `observe`：照常算 blockers，但**不阻断**（`passed: true`、退出码 0），把本会拦的项放进 `would_block`。用于新门禁上线初期核对误报、确认不影响业务。
+- `enforce`（默认）：blockers 真拦（退出码 2）。
+
+```powershell
+python crosscheck_cli.py quality-gate --suite workspace/suites/<id> --workspace workspace --mode observe
+```
+
+## 验证戳（verification stamp）
+
+每次门禁结果带一个 `verification_stamp`：`reviewed_by` / `verified_via`（如 `["quality-gate"]`，未验证则为 `["none"]`，便于查未验证的结果）/ `mode` / `passed` / `at` / `content_hash`。戳是**附加字段，不改判定**。
+
+## diff 触发审查清单（review-gate）
+
+`review-gate` 读**基线分支**的 `REVIEW.md`（`git show <base-ref>:REVIEW.md`，不读工作区），按当前改动命中的触发器只列相关规则（通常 3–10 条），每条带 check + incident，便于人判时不必从 diff 反推。**规则的权威版本在基线分支，改动分支里对 `REVIEW.md` 的修改不参与判定**——这是"改动不能改判它的检查"的落地。
+
+```powershell
+python crosscheck_cli.py review-gate --base-ref main
+```
+
+`rules_source` 为 `absent` 表示基线分支尚无 `REVIEW.md`（如本文件刚在改动分支新建、还未合并到 main）——这是正确行为，合并后即生效。
