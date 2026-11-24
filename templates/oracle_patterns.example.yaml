@@ -1,0 +1,35 @@
+# 业务 Oracle 自动生成器的领域文本模式(业务侧,可换系统)。
+# 复制到 <workspace>/config/oracle_patterns.yaml 按你的系统填。
+# core 零业务:框架不认任何领域词,只按这份规则"从预期文本抽候选断言"。
+#
+# 每条 pattern:
+#   match:        预期文本正则(命中才产候选)
+#   layer:        ui | api | db
+#   operator:     复用 core/oracle.py 算子: equals|not_equals|contains|exists|matches|gte|lte|in
+#   subject_hint: 候选 subject 点路径(逗号分隔,按序取在抓包样本中存在的那个)
+#   expected_from: 取值来源: group<N>(正则第N组) | literal:<值> | literal(用下方 expected) | none
+#   expected:     expected_from=literal 时用
+#
+# 产出的候选全部 status=candidate,带置信度+证据,仍须人审 human_verified 才进执行。
+
+patterns:
+  # "至少 N 条 / 存在 / 显示" -> 接口总数 >= N
+  - match: "至少(\\d+)条|存在记录|有数据"
+    layer: api
+    operator: gte
+    subject_hint: "data.total,data.records"
+    expected_from: group1
+
+  # "列表/结果 显示/可见" -> 接口返回结果集存在
+  - match: "显示|展示|可见|出现"
+    layer: api
+    operator: exists
+    subject_hint: "data.records,data.list,data.rows"
+    expected_from: none
+
+  # "状态为 X / 值为 X" -> 字段等于引号内的值(用 matches 兜底,精确值仍建议人审)
+  - match: "状态为[“\"]?(.+?)[”\"]?$"
+    layer: api
+    operator: contains
+    subject_hint: "data.records.0.status,data.status"
+    expected_from: group1
