@@ -28,13 +28,23 @@ jobs:
           name: pytest-results-${{ matrix.os }}-${{ matrix.python-version }}
           path: test-results.xml
       - run: python -m coverage combine
-      - run: python -m coverage report --fail-under=55
+      # 覆盖率门禁分阶段抬升:55(旧)→65(本阶段)→目标 80。
+      # 抬满 80 需先补齐 UI/stage 层测试,避免一次性红构建;见 scorecard autobuild/coverage 维度。
+      - run: python -m coverage report --fail-under=65
+      - run: python -m coverage json -o coverage.json
       - run: python -m pip install pip-audit bandit
       - run: python -m pip_audit -r requirements.lock --strict
       - run: python -m bandit -r core adapters db scripts -lll
       - run: python scripts/acceptance_matrix.py
       - run: python scripts/verify_distribution.py --skip-demo
       - run: python tests/test_local_demo.py
+      # 机器实测产出成熟度计分卡(分数不再靠人写文档),作为 CI 工件留存
+      - run: python crosscheck_cli.py scorecard --run-tests --coverage-json coverage.json --workspace workspace --output scorecard.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scorecard-${{ matrix.os }}-${{ matrix.python-version }}
+          path: scorecard.json
 
   package-smoke:
     runs-on: windows-latest

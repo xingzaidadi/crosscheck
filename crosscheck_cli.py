@@ -314,6 +314,31 @@ def main() -> int:
     release.add_argument("--out")
     release.add_argument("--allow-dirty", action="store_true")
 
+    bootstrap_env = sub.add_parser("bootstrap-env", help="一键装配可复现运行环境(依赖+浏览器+体检)")
+    bootstrap_env.add_argument("--locked", action="store_true")
+    bootstrap_env.add_argument("--skip-browser", action="store_true")
+    bootstrap_env.add_argument("--verify", action="store_true")
+
+    scorecard = sub.add_parser("scorecard", help="机器实测产出工具成熟度计分卡与徽章")
+    scorecard.add_argument("--workspace")
+    scorecard.add_argument("--suite")
+    scorecard.add_argument("--coverage-json")
+    scorecard.add_argument("--demo-workspace")
+    scorecard.add_argument("--run-tests", action="store_true")
+    scorecard.add_argument("--run-demo", action="store_true")
+    scorecard.add_argument("--tests-total", type=int, default=0)
+    scorecard.add_argument("--tests-passed", type=int, default=0)
+    scorecard.add_argument("--output", default="scorecard.json")
+    scorecard.add_argument("--markdown")
+
+    contract = sub.add_parser("contract-ingest", help="从源码/OpenAPI 摄取接口契约并生成 ExecSpec/负例草稿")
+    contract.add_argument("provider")
+    contract.add_argument("source")
+    contract.add_argument("--context", default="")
+    contract.add_argument("--site", default="")
+    contract.add_argument("--workspace", default="workspace")
+    contract.add_argument("--output")
+
     task = sub.add_parser("task", help="创建、执行和查询持久化测试任务")
     task.add_argument("arguments", nargs=argparse.REMAINDER)
     gate = sub.add_parser("feature-gate", help="评估冻结的功能级 100%% 验收门禁")
@@ -526,6 +551,24 @@ def main() -> int:
         if args.allow_dirty:
             values.append("--allow-dirty")
         return _run("scripts/build_release.py", values)
+    if args.command == "bootstrap-env":
+        values = []
+        if args.locked:
+            values.append("--locked")
+        if args.skip_browser:
+            values.append("--skip-browser")
+        if args.verify:
+            values.append("--verify")
+        return _run("scripts/bootstrap_env.py", values)
+    if args.command == "scorecard":
+        values = _forward(args, ["workspace", "suite", "coverage_json", "demo_workspace",
+                                 "run_tests", "run_demo", "tests_total", "tests_passed",
+                                 "output", "markdown"])
+        return _run("scripts/scorecard.py", values)
+    if args.command == "contract-ingest":
+        values = [args.provider, args.source]
+        values += _forward(args, ["context", "site", "workspace", "output"])
+        return _run("scripts/contract_ingest.py", values)
     if args.command == "task":
         return _run("scripts/task.py", args.arguments)
     if args.command == "feature-gate":
