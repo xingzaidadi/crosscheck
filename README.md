@@ -18,7 +18,16 @@ crosscheck dashboard --workspace ./my-workspace
 crosscheck map --workspace ./my-workspace
 crosscheck readiness --suite ./my-workspace/suites/<suite-id> --workspace ./my-workspace
 crosscheck demo --workspace ./demo-output
+
+# 环境/成熟度/建模(新增)
+crosscheck bootstrap-env                              # 一键装依赖+Chromium+体检,消灭"开箱不绿"
+crosscheck scorecard --run-tests --coverage-json coverage.json --workspace ./my-workspace
+crosscheck contract-ingest openapi ./openapi.json --site my-system --workspace ./my-workspace
 ```
+
+> `scorecard` 是机器实测折算的成熟度分(五维加权:可运行性/覆盖率/自动建模/oracle/demo),
+> 确定性可复算,不采信人写的自评;`contract-ingest` 从源码(`java_spring`)或 API 文档
+> (`openapi`)摄取契约,自动产出 ExecSpec 草稿 + 负例草稿(`draft` 态,不经人审不晋级)。
 
 对外用户只使用 `crosscheck` CLI。根目录 `run_*.py` 是迁移兼容入口，不承载新的产品能力，可能在后续主版本删除。
 
