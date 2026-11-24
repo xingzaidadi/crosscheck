@@ -339,6 +339,19 @@ def main() -> int:
     contract.add_argument("--workspace", default="workspace")
     contract.add_argument("--output")
 
+    route_assign = sub.add_parser("route-assign", help="契约端点→用例候选路由(候选态,人审晋级),补 readiness 缺的那一跳")
+    route_assign.add_argument("--contracts", help="已摄取契约 json(contract_ingest 产物)")
+    route_assign.add_argument("--openapi", help="OpenAPI/Swagger 文档(无契约时现摄取)")
+    route_assign.add_argument("--cases", required=True, help="用例文件(xlsx/csv/json/yaml)")
+    route_assign.add_argument("--keywords", help="领域动作词文件(workspace 侧,零业务由你给)")
+    route_assign.add_argument("--site", default="")
+    route_assign.add_argument("--workspace", default="workspace")
+    route_assign.add_argument("--min-score", type=float, default=2.0)
+    route_assign.add_argument("--margin", type=float, default=1.0)
+    route_assign.add_argument("--context-prefix", default="")
+    route_assign.add_argument("--promote", action="append", default=[], help="人审晋级的 case_id(可多次)")
+    route_assign.add_argument("--output")
+
     task = sub.add_parser("task", help="创建、执行和查询持久化测试任务")
     task.add_argument("arguments", nargs=argparse.REMAINDER)
     gate = sub.add_parser("feature-gate", help="评估冻结的功能级 100%% 验收门禁")
@@ -569,6 +582,12 @@ def main() -> int:
         values = [args.provider, args.source]
         values += _forward(args, ["context", "site", "workspace", "output"])
         return _run("scripts/contract_ingest.py", values)
+    if args.command == "route-assign":
+        values = _forward(args, ["contracts", "openapi", "cases", "keywords", "site",
+                                 "workspace", "min_score", "margin", "context_prefix", "output"])
+        for cid in args.promote:
+            values.extend(["--promote", str(cid)])
+        return _run("scripts/route_assign.py", values)
     if args.command == "task":
         return _run("scripts/task.py", args.arguments)
     if args.command == "feature-gate":

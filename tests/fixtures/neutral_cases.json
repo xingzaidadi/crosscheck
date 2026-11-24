@@ -1,0 +1,7 @@
+[
+  {"name": "TC01-create item", "steps_text": "create a new item with a title", "expected_text": "item created"},
+  {"name": "TC02-search items", "steps_text": "search items by keyword", "expected_text": "list returned"},
+  {"name": "TC03-create order", "steps_text": "create an order for an item", "expected_text": "order created"},
+  {"name": "TC04-view page", "steps_text": "open the page and look around", "expected_text": "page shown"},
+  {"name": "TC05-touch item", "steps_text": "do something with item", "expected_text": "ok"}
+]
