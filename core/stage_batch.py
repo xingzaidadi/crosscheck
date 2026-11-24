@@ -74,8 +74,12 @@ def run_batch(
     resume: bool = True,
     policy: BreakerPolicy | None = None,
     run_id: str | None = None,
+    checker: StageAgent | None = None,
 ) -> BatchResult:
-    """按序跑多条用例,复用熔断器;同类问题连续失败达阈值即停批并转人工。"""
+    """按序跑多条用例,复用熔断器;同类问题连续失败达阈值即停批并转人工。
+
+    checker 非空则每条用例 spec 段过闸后跑 CP-1' 语义软门(只落 spec_review + 附提示,不阻断)。
+    """
     root = Path(run_dir)
     root.mkdir(parents=True, exist_ok=True)
     policy = policy or default_policy()
@@ -87,7 +91,7 @@ def run_batch(
     batch = BatchResult()
     for case_id in case_ids:
         result = run_case(agents, run_dir, case_id, env=env,
-                          max_retries=max_retries, resume=resume)
+                          max_retries=max_retries, resume=resume, checker=checker)
         batch.results.append(result)
 
         success, failure_class = classify_outcome(result)

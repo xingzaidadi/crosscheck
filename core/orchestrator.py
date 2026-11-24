@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
-from core.stage_contracts import STAGE_ARTIFACT, STAGES, StageVerdict
+from core.stage_contracts import STAGE_ARTIFACT, STAGE_SPEC, STAGES, StageVerdict
 from core.stage_runner import StageAgent, StageContext, StageRun, run_stage
 
 
@@ -76,6 +76,7 @@ class Orchestrator:
         env: dict[str, Any] | None = None,
         max_retries: int = 1,
         resume: bool = True,
+        checker: StageAgent | None = None,
     ) -> None:
         missing = [stage for stage in STAGES if stage not in agents]
         if missing:
@@ -85,6 +86,7 @@ class Orchestrator:
         self.env = dict(env or {})
         self.max_retries = max(0, int(max_retries))
         self.resume = resume
+        self.checker = checker          # CP-1' 语义软门子 Agent(可选;None=不复核)
         self.root = Path(run_dir) / case_id
         self.art_dir = self.root / "artifacts"
         self.checkpoint_path = self.root / "stage_checkpoint.json"
@@ -171,7 +173,42 @@ class Orchestrator:
             if not run.ok:
                 return OrchestrationResult(self.case_id, False, stopped_at=stage, outcomes=outcomes)
 
+            # CP-1' 语义软门:spec 段过闸后,若注册了 checker,跑一次语义复核。
+            # 软门——【永不】改 verdict、【永不】停流水线;只落 spec_review 候选 + 附提示。
+            if stage == STAGE_SPEC and self.checker is not None:
+                self._run_spec_semantics(run.artifact, outcomes[-1])
+
         return OrchestrationResult(self.case_id, True, outcomes=outcomes)
+
+    def _run_spec_semantics(self, exec_artifact: dict[str, Any], spec_outcome: StageOutcome) -> None:
+        """跑 CP-1' 语义软门:checker 读 exec_spec → 产 spec_review 候选,落盘 + 附提示。
+
+        铁律(软门):
+          - checker 只能写 spec_review(enforce_write_scope 白名单切到旁路键),写 exec_spec 越界;
+          - 不改 spec 段 verdict、不触发打回;语义存疑仅作为"待人审"标注写进 outcome.reasons。
+        """
+        from core.spec_checker import REVIEW_ARTIFACT, STATUS_REVIEW
+        from core.stage_runner import enforce_write_scope_for
+
+        context = StageContext(stage=STAGE_SPEC, case_id=self.case_id,
+                               upstream=dict(exec_artifact), env=dict(self.env))
+        try:
+            produced = self.checker.produce(STAGE_SPEC, context)
+        except Exception as exc:  # noqa: BLE001 —— 软门不得让复核异常拖垮主流程
+            spec_outcome.reasons = list(spec_outcome.reasons) + [f"语义复核跳过(异常):{exc}"]
+            return
+
+        # 写作用域:checker 白名单={spec_review};越界(写 exec_spec 等)→ 拒收该产物,不落盘。
+        violations = enforce_write_scope_for({REVIEW_ARTIFACT}, produced)
+        if violations:
+            spec_outcome.reasons = list(spec_outcome.reasons) + [f"语义复核越界被拒:{violations}"]
+            return
+
+        review = produced.get(REVIEW_ARTIFACT) or {}
+        self._save_artifact("spec_review", produced)
+        if review.get("status") == STATUS_REVIEW:
+            tip = "语义存疑·待人审:" + ";".join(review.get("reasons") or []) or "语义存疑·待人审"
+            spec_outcome.reasons = list(spec_outcome.reasons) + [tip]
 
     def _run_with_retry(self, stage: str, upstream: dict[str, Any]) -> "_AttemptedRun":
         agent = self.agents[stage]
@@ -208,7 +245,8 @@ def run_case(
     env: dict[str, Any] | None = None,
     max_retries: int = 1,
     resume: bool = True,
+    checker: StageAgent | None = None,
 ) -> OrchestrationResult:
-    """便捷入口:跑单条用例的三段式。"""
+    """便捷入口:跑单条用例的三段式。checker 非空则开 CP-1' 语义软门。"""
     return Orchestrator(agents, run_dir, case_id=case_id, env=env,
-                        max_retries=max_retries, resume=resume).run()
+                        max_retries=max_retries, resume=resume, checker=checker).run()

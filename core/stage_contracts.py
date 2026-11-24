@@ -234,3 +234,28 @@ def validate(stage: str, artifact: Any) -> CheckResult:
     if validator is None:
         return CheckResult(stage, StageVerdict.REJECT, [f"未知阶段: {stage}"], artifact_hash(artifact))
     return validator(artifact)
+
+
+# ─────────────────── CP-1' 语义软门(旁路,不进 REJECT 流) ───────────────────
+# 软门:checker 产 spec_review 候选,此函数给出可读判定供报告/人审用。
+# 它【永不】让流水线 REJECT——只把"语义存疑"标注出来,信不信由人审。
+REVIEW_ARTIFACT = "spec_review"
+SEMANTIC_OK = "semantic_ok"
+SEMANTIC_REVIEW = "needs_human_review"
+
+
+def read_spec_semantics(artifact: Any) -> CheckResult:
+    """读 spec_review 产物,翻成 CheckResult(仅表达 OK/存疑,不用于阻断)。
+
+    用途:报告渲染、--plan-only/--dump 展示"这条用例转得忠不忠实"。
+    verdict=PASS 表示语义 OK;verdict=REJECT 这里只代表"存疑待人审",调用方【不得】
+    据此停流水线(软门语义见 orchestrator:只附提示、不改过闸结论)。
+    """
+    review = artifact.get(REVIEW_ARTIFACT) if isinstance(artifact, dict) else None
+    if not isinstance(review, dict):
+        return CheckResult(STAGE_SPEC, StageVerdict.PASS, ["无语义复核产物(未开 checker)"],
+                           artifact_hash(artifact))
+    status = review.get("status")
+    reasons = list(review.get("reasons") or [])
+    verdict = StageVerdict.PASS if status == SEMANTIC_OK else StageVerdict.REJECT
+    return CheckResult(STAGE_SPEC, verdict, reasons, artifact_hash(artifact))
