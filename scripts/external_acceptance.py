@@ -16,10 +16,18 @@ def assess(manifest_path: Path) -> dict:
     levels = []
     policy = data.get("policy") or {}
     strict = bool(policy)
-    minimum_systems = int(policy.get("minimum_systems") or (3 if strict else 2))
-    minimum_cases = int(policy.get("minimum_cases_per_system") or (20 if strict else 1))
-    maximum_inconclusive_rate = float(policy.get("maximum_inconclusive_rate") if strict else 1)
-    minimum_soak_runs = int(policy.get("minimum_soak_runs") or (5 if strict else 0))
+
+    def _policy(name, strict_default, lenient_default):
+        # 显式给 0 也应被尊重;只有真正缺省(None/缺键)才回落默认。
+        value = policy.get(name)
+        if value is None:
+            return strict_default if strict else lenient_default
+        return value
+
+    minimum_systems = int(_policy("minimum_systems", 3, 2))
+    minimum_cases = int(_policy("minimum_cases_per_system", 20, 1))
+    maximum_inconclusive_rate = float(_policy("maximum_inconclusive_rate", 0, 1))
+    minimum_soak_runs = int(_policy("minimum_soak_runs", 5, 0))
     if len(systems) < minimum_systems:
         errors.append(f"at least {minimum_systems} external systems are required")
         return {"passed": False, "verification_level": "external_ready", "errors": errors, "systems": 0}

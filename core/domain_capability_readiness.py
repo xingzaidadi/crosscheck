@@ -7,19 +7,48 @@ no matching healthy capability is reported as a gap.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 from .arsenal import load_capabilities, validate_capability_registry
+from .workspace import kb_dir
 
 
-ACTION_PATTERNS: dict[str, tuple[str, ...]] = {
-    "create": ("创建", "新建", "构造", "准备", "生成", "存在", "含", "草稿", "draft"),
-    "transition": ("提交", "审批", "发策略", "发招采", "签合同", "下单", "下订单", "受理",
-                   "转办", "退回", "撤回", "关闭", "完成", "状态", "流转", "回写", "占用"),
-    "query": ("查询", "列表", "检索", "展示", "页签", "筛选", "分页", "字段"),
-    "cleanup": ("清理", "删除", "作废", "回收", "补偿"),
+# 机制层只保留"动作分类"的四个槽位与一个中性(非业务)内建兜底。
+# 具体的业务触发词(例如中文流程动词)属于 workspace 资料,从
+# <workspace>/knowledge_base/action_patterns.json 加载,core/ 不内置任何业务词。
+# 换业务只改 workspace 的这份 JSON,core 一行不动(零业务红线)。
+_DEFAULT_ACTION_PATTERNS: dict[str, tuple[str, ...]] = {
+    "create": ("draft",),
+    "transition": (),
+    "query": (),
+    "cleanup": (),
 }
+
+_ACTION_PATTERNS_FILE = "action_patterns.json"
+
+
+def load_action_patterns(kb_root: str | Path | None = None) -> dict[str, tuple[str, ...]]:
+    """加载动作触发词:中性内建兜底 ∪ workspace 知识库覆盖。
+
+    找不到 KB 文件时只返回中性内建(不含任何业务词),保证 core 可移植。"""
+    patterns: dict[str, tuple[str, ...]] = {
+        kind: tuple(terms) for kind, terms in _DEFAULT_ACTION_PATTERNS.items()
+    }
+    root = Path(kb_root) if kb_root is not None else kb_dir()
+    path = root / _ACTION_PATTERNS_FILE
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            loaded = {}
+        if isinstance(loaded, dict):
+            for kind, terms in loaded.items():
+                if kind in patterns and isinstance(terms, (list, tuple)):
+                    merged = list(patterns[kind]) + [str(t) for t in terms]
+                    patterns[kind] = tuple(dict.fromkeys(merged))
+    return patterns
 
 KIND_ALIASES = {
     "create": {"create"},
@@ -37,13 +66,16 @@ def _precondition_text(case: dict[str, Any]) -> str:
     return " ".join(str(part) for part in parts if part not in (None, "", [], {})).strip()
 
 
-def required_actions(case: dict[str, Any]) -> list[str]:
+def required_actions(
+    case: dict[str, Any], *, kb_root: str | Path | None = None
+) -> list[str]:
     text = _precondition_text(case)
     if not text:
         return []
+    patterns = load_action_patterns(kb_root)
     actions: list[str] = []
-    for action, terms in ACTION_PATTERNS.items():
-        if any(term in text for term in terms):
+    for action, terms in patterns.items():
+        if terms and any(term in text for term in terms):
             actions.append(action)
     return actions
 

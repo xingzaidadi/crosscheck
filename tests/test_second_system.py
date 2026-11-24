@@ -117,8 +117,11 @@ def main():
 
     # 5) 零业务门禁:整个过程 core 一行未改
     import subprocess
-    gp = subprocess.run([sys.executable, "-I", "tests/test_no_business_in_core.py"],
-                        capture_output=True, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _guard_env = dict(os.environ)
+    _guard_env["PYTHONPATH"] = os.pathsep.join(p for p in [_root, _guard_env.get("PYTHONPATH")] if p)
+    gp = subprocess.run([sys.executable, "tests/test_no_business_in_core.py"],
+                        capture_output=True, cwd=_root, env=_guard_env)
     assert gp.returncode == 0, "零业务门禁应通过(core 未被污染)"
     print("    ✓ 零业务门禁仍通过:core 一行未改")
     print("\n全部通过 ✅  —— 换全新业务域(图书馆),仅配 workspace,公共管线端到端跑通,core 零改动")
