@@ -79,10 +79,53 @@ def test_ladder_b_degrades_without_plugin():
     print("  ✓ 档位B 无插件自动降级档位A(默认关、不阻塞、不编数)")
 
 
+def test_snapshot_promote_is_reproducible():
+    # 档位B 抽取不可复现 → 冻结成快照 → 从快照晋级必须逐位可复现、不重调模型
+    with tempfile.TemporaryDirectory() as tmp:
+        suite = _mk_suite(Path(tmp))
+        # 构造一份含"LLM 来源"候选的快照(ui+api 层,确定性抽不出的 ui 层也在内)
+        snapshot = {
+            "suite": str(suite), "cases_total": 2, "mode": "snapshot",
+            "cases": [
+                {"case_id": "mini/TC02", "case_key": "TC02", "candidates": 2,
+                 "high": 0, "source": "llm", "case_candidates": [
+                     {"id": "llm-ui-1", "layer": "ui", "subject": "需求部门",
+                      "operator": "exists", "expected": None, "confidence": 0.5,
+                      "source": "llm:mini/TC02", "status": "candidate"},
+                     {"id": "llm-api-1", "layer": "api", "subject": "data.dept",
+                      "operator": "exists", "expected": None, "confidence": 0.5,
+                      "source": "llm:mini/TC02", "status": "candidate"},
+                 ]},
+            ],
+        }
+        # 从快照晋级 TC02(确定性抽不出的用例,靠快照写回)
+        rep = run(str(suite), workspace=str(ROOT / "workspace"), use_llm=False,
+                  promote=["TC02"], snapshot=snapshot)
+        assert rep["mode"] == "snapshot", rep["mode"]
+        assert "mini/TC02" in rep["promoted"], rep["promoted"]
+
+        tc02 = yaml.safe_load((suite / "cases" / "TC02.yaml").read_text(encoding="utf-8"))
+        ui = tc02["assertions"].get("ui") or []
+        api = tc02["assertions"].get("api") or []
+        assert {a["subject"] for a in ui} == {"需求部门"}, ui
+        assert {a["subject"] for a in api} == {"data.dept"}, api
+        assert all(a["status"] == "candidate" for a in ui + api)  # 绝不自动过闸
+        assert tc02["approval"]["status"] == "draft"
+
+        # 幂等:再从同一快照晋级一次,结果逐位一致(可复现铁律)
+        rep2 = run(str(suite), workspace=str(ROOT / "workspace"), use_llm=False,
+                   promote=["TC02"], snapshot=snapshot)
+        tc02b = yaml.safe_load((suite / "cases" / "TC02.yaml").read_text(encoding="utf-8"))
+        assert tc02b["assertions"]["ui"] == ui, "同一快照重跑结果必须逐位一致"
+        assert tc02b["assertions"]["api"] == api
+    print("  ✓ 档位B 候选冻结快照 → 从快照确定性晋级,幂等可复现(不重调模型)")
+
+
 def main():
     test_deterministic_extract_and_promote()
     test_ladder_b_degrades_without_plugin()
-    print("\n全部通过 ✅  —— oracle 确定性抽取管线接线(候选→人审晋级),档位B 可开关")
+    test_snapshot_promote_is_reproducible()
+    print("\n全部通过 ✅  —— oracle 确定性抽取管线接线(候选→人审晋级),档位B 可开关 + 快照可复现")
 
 
 if __name__ == "__main__":
