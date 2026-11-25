@@ -47,7 +47,11 @@ def main():
     assert abs(score_oracle(80, 100, diff_mode=False).score - 9.0) < 0.05
     assert abs(score_oracle(80, 100, diff_mode=True).score - 10.0) < 0.05
     assert score_oracle(0, 100).score == 0.0
-    print("    ✓ oracle 覆盖 80%=9,差异测试模式再+1 封顶 10")
+    # partial 半权:40 ready + 80 partial = 40+40=80 有效 → 等同 80 ready 的 9.0
+    assert abs(score_oracle(40, 100, cases_partial=80).score - 9.0) < 0.05
+    # 纯 partial 诚实半权(不是降标准):6 partial/142 = 3 有效 → 低分但非 0
+    assert 0.0 < score_oracle(0, 142, cases_partial=6).score < 0.5
+    print("    ✓ oracle 覆盖 80%=9,差异测试模式再+1 封顶 10,partial 半权诚实计入")
 
     # demo:布尔
     assert score_demo(True).score == 10.0

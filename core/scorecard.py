@@ -83,20 +83,28 @@ def score_autobuild(cases_total: int, ready_true: int, zero_route: int = 0) -> D
     )
 
 
-def score_oracle(cases_with_oracle: int, cases_total: int, diff_mode: bool = False) -> DimensionScore:
+def score_oracle(cases_with_oracle: int, cases_total: int, diff_mode: bool = False,
+                 cases_partial: int = 0) -> DimensionScore:
     """判得准(oracle 覆盖 + 差异测试模式是否可用)。
 
-    oracle 覆盖率以 80% 为满分锚点;差异测试模式可用再加 1 分封顶。
+    有效覆盖 = ready 全权 + partial 半权。partial 指用例已有结构化断言且正确绑定了
+    『部分』证明层(如确定性只抽出 api 层,ui/db 证明待补)——比纯散文(blocked)可信,
+    但不如三层齐全(ready),故按半权诚实计入,不是降标准也不是凑数。
+    有效覆盖率以 80% 为满分锚点;差异测试模式可用再加 1 分封顶。
     """
-    rate = (cases_with_oracle / cases_total) if cases_total else 0.0
+    effective = cases_with_oracle + 0.5 * cases_partial
+    rate = (effective / cases_total) if cases_total else 0.0
     score = _clamp((rate / 0.8) * 9.0 + (1.0 if diff_mode else 0.0))
+    partial_note = f"(+{cases_partial} partial 半权)" if cases_partial else ""
     return DimensionScore(
         name="oracle",
         score=_round1(score),
         weight=0.15,
-        basis=(f"oracle 覆盖 {cases_with_oracle}/{cases_total}={rate:.1%}(锚点 80%)"
+        basis=(f"oracle 覆盖 ready {cases_with_oracle}+partial {cases_partial} "
+               f"/{cases_total}={rate:.1%}{partial_note}(锚点 80%)"
                f"{', 含差异测试模式' if diff_mode else ''}"),
-        facts={"cases_with_oracle": cases_with_oracle, "cases_total": cases_total,
+        facts={"cases_with_oracle": cases_with_oracle, "cases_partial": cases_partial,
+               "cases_total": cases_total, "effective_cases": round(effective, 1),
                "oracle_rate": round(rate, 4), "diff_mode": diff_mode},
     )
 
@@ -133,6 +141,7 @@ def build_scorecard(
     zero_route: int = 0,
     cases_with_oracle: int = 0,
     diff_mode: bool = False,
+    cases_partial: int = 0,
     three_source_ok: bool = False,
 ) -> dict[str, Any]:
     """从采集好的事实产出完整计分卡(确定性、可单测、可复算)。"""
@@ -140,7 +149,7 @@ def build_scorecard(
         score_runnability(tests_total, tests_passed),
         score_coverage(coverage_pct),
         score_autobuild(cases_total, ready_true, zero_route),
-        score_oracle(cases_with_oracle, cases_total, diff_mode),
+        score_oracle(cases_with_oracle, cases_total, diff_mode, cases_partial),
         score_demo(three_source_ok),
     ]
     return aggregate(dims)

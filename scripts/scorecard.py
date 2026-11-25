@@ -73,23 +73,23 @@ def _read_readiness(workspace: str | None) -> tuple[int, int, int]:
     return total, ready, zero_route
 
 
-def _read_oracle(suite: str | None) -> tuple[int, int, bool]:
-    """返回 (cases_with_oracle, cases_total, diff_mode)。"""
+def _read_oracle(suite: str | None) -> tuple[int, int, bool, int]:
+    """返回 (cases_with_oracle_ready, cases_total, diff_mode, cases_partial)。"""
     if not suite:
-        return 0, 0, False
+        return 0, 0, False, 0
     try:
         from core.suite_dsl import load_suite
         from core.oracle_readiness import assess_oracles
     except Exception:
-        return 0, 0, False
+        return 0, 0, False, 0
     suite_dir = Path(suite)
     if not suite_dir.exists():
-        return 0, 0, False
+        return 0, 0, False, 0
     _meta, cases = load_suite(str(suite_dir))
     result = assess_oracles(cases, suite_dir=str(suite_dir))
     # 差异测试模式:套件声明了 baseline/oracle_system 即视为可用
     diff_mode = bool(_meta.get("diff_baseline") or _meta.get("oracle_system"))
-    return result["ready"], result["total"], diff_mode
+    return result["ready"], result["total"], diff_mode, result.get("partial", 0)
 
 
 def _read_demo(demo_ws: str | None, run_demo: bool) -> bool:
@@ -150,7 +150,7 @@ def main() -> int:
 
     coverage_pct = _read_coverage(args.coverage_json)
     cases_total, ready_true, zero_route = _read_readiness(args.workspace)
-    cases_with_oracle, oracle_total, diff_mode = _read_oracle(args.suite)
+    cases_with_oracle, oracle_total, diff_mode, oracle_partial = _read_oracle(args.suite)
     # oracle 的分母以套件为准;若没套件,退回 readiness 分母
     if oracle_total:
         cases_total = max(cases_total, oracle_total)
@@ -161,6 +161,7 @@ def main() -> int:
         coverage_pct=coverage_pct,
         cases_total=cases_total, ready_true=ready_true, zero_route=zero_route,
         cases_with_oracle=cases_with_oracle, diff_mode=diff_mode,
+        cases_partial=oracle_partial,
         three_source_ok=three_source_ok,
     )
     card["badge"] = _badge(card["overall"])
