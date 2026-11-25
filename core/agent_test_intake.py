@@ -155,8 +155,27 @@ def _normalize_agent_actions(actions: list[dict], instruction: str) -> list[dict
         r"(?:打开|进入|查看|点击)\s*(?:(?:订单|记录|数据)\s*)?(?:详情|明细)", text,
     ))
     asks_record = asks_first or explicit_detail
+    # 纯导航动词(打开/进入/切换到/跳转)后接的页面名视为"到达目标",改走 reach:
+    # reach 的 action_visible 兼容语义命中(控件分≥70)且自带网关+退伍逻辑,比 click
+    # 更能容忍"用例措辞≠控件名"(如用例'客户资料'、控件'会员档案')而不误判 BLOCKED。
+    # 排除详情/记录类(由上面 record 逻辑处理)与显式"点击/单击/按下"的控件交互。
+    nav_targets = {
+        match.group(1).strip()
+        for match in re.finditer(
+            r"(?:打开|进入|切换到|跳转(?:到|至)?)\s*[‘’“”\"《》【】]?"
+            r"([^，。；;\s‘’“”\"《》【】]{2,40})",
+            text,
+        )
+        if not any(term in match.group(1) for term in ("详情", "明细", "第一条", "首条", "第一行"))
+    }
     normalized: list[dict] = []
     for action in actions:
+        if action.get("action") == "click" and str(action.get("text") or "") in nav_targets:
+            goal = {"action": "reach", "target": str(action.get("text") or "")}
+            if goal not in normalized:
+                normalized.append(goal)
+            continue
+
         if action.get("action") == "open_first_record" and explicit_detail and not asks_first:
             normalized.append({"action": "click", "text": "详情"})
             continue

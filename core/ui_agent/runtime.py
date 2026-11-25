@@ -129,6 +129,7 @@ class AgentRuntime:
                     reason=result.planner_decisions[-1]["reason"],
                     confidence=result.planner_decisions[-1]["confidence"],
                     desired_action=result.planner_decisions[-1].get("desired_action"),
+                    source=result.planner_decisions[-1].get("source", ""),
                 ))
                 if action.get("action") == "observe" and not planner.state.pending_actions:
                     break
@@ -210,9 +211,12 @@ class AgentRuntime:
             chosen = str(action.get("text") or action.get("label") or action.get("target") or "")
             candidates = decision.get("candidates") or []
             top = candidates[0] if candidates else None
-            # 判定来源:provider 给出的 explore(无确定性候选)vs 确定性打分命中。
+            # 判定来源:优先用 planner 显式标注的 source(provider=可选插件/LLM),
+            # 缺失时按确定性候选打分回推(精确/别名 vs 子串 vs 弱词重合)。
             top_score = float((top or {}).get("score") or 0)
-            if decision.get("kind") == "explore" and decision.get("confidence", 0) and not candidates:
+            if decision.get("source") == "provider":
+                source = "provider"
+            elif decision.get("kind") == "explore" and decision.get("confidence", 0) and not candidates:
                 source = "provider"
             elif top_score >= 100.0:
                 source = "exact_or_alias"

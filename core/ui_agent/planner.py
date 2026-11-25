@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from core.ui_agent.risk_policy import WRITE_TERMS
-from core.ui_agent.semantic import equivalent
+from core.ui_agent.semantic import equivalent, normalize
 from core.ui_agent.provider import SAFE_PROVIDER_ACTIONS, invoke_planner, normalize_proposal
 
 
@@ -15,6 +15,10 @@ STOP_WORDS = {
     "确认", "验证", "检查", "显示", "详情", "第一条", "一条", "click", "open", "view",
 }
 NAV_ROLES = {"button", "link", "tab", "menuitem", "treeitem"}
+
+# 确定性网关置信度低于此阈值视为"弱匹配"(只有巧合性词重合,无别名/子串命中,
+# 对应 _gateway_for 打分 <~45):此时先问一次可选 provider,它没注册才回退弱网关。
+WEAK_GATEWAY_CONFIDENCE = 0.6
 
 
 def _tokens(value: str) -> list[str]:
@@ -92,6 +96,13 @@ def _is_detail_goal(action: dict[str, Any]) -> bool:
     return any(term in value for term in ("详情页", "详情页面", "进入详情", "查看详情", "open_first_record"))
 
 
+def _norm_goal(action: dict[str, Any]) -> str:
+    """导航目标的稳定指纹:动词 + 目标文字,用于标记/查"该导航已被语义解析过"。"""
+    kind = str(action.get("action") or "")
+    target = str(action.get("text") or action.get("label") or action.get("target") or "")
+    return f"{kind}:{normalize(target)}"
+
+
 @dataclass
 class PlannerState:
     pending_actions: list[dict[str, Any]]
@@ -100,6 +111,9 @@ class PlannerState:
     stagnant_rounds: int = 0
     last_fingerprint: str = ""
     seen_fingerprints: set[str] = field(default_factory=set)
+    # 已被"有把握的语义网关"(provider/强确定性)解析过的导航目标指纹:若随后仍找不到
+    # 更具体的目标控件而 blocked,说明网关本身就是目的地,该导航目标可退伍(不误判 BLOCKED)。
+    resolved_navigations: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -110,6 +124,7 @@ class PlannerDecision:
     confidence: float
     desired_action: dict[str, Any] | None = None
     candidates: list[dict[str, Any]] = field(default_factory=list)
+    source: str = ""  # "provider"=可选插件/LLM 解析;空=确定性层
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -184,6 +199,13 @@ class ObservationPlanner:
                                        "desired action is visible in current observation", .95,
                                        desired_action=desired, candidates=candidates)
             gateway = self._gateway_for(desired, observation)
+            # Provider 通电:确定性网关**弱匹配**(只有巧合性词重合、无别名/子串命中)时,
+            # 先问一次可选 provider(默认未注册→None→仍走确定性网关)。强匹配不浪费调用。
+            # 这样"刁钻措辞"(用例'客户资料'、控件'会员档案',无共享 token)才真能靠 LLM 桥接。
+            if not gateway or gateway["confidence"] < WEAK_GATEWAY_CONFIDENCE:
+                resolved = self._resolve_with_provider(desired, observation)
+                if resolved:
+                    return resolved
             if gateway:
                 return PlannerDecision(
                     "explore", {"action": "click", "text": gateway["name"], "exploration": True},
@@ -191,9 +213,6 @@ class ObservationPlanner:
                     desired_action=desired,
                     candidates=self._rank_candidates(desired, observation),
                 )
-            resolved = self._resolve_with_provider(desired, observation)
-            if resolved:
-                return resolved
             if desired.get("action") == "open_first_record":
                 fallback = self._instruction_gateway(observation)
                 if fallback:
@@ -233,6 +252,7 @@ class ObservationPlanner:
             "explore", action,
             str(proposal.get("reason") or "semantic planner selected a safe observable action"),
             float(proposal.get("confidence") or .65), desired_action=desired,
+            source="provider",
         )
 
     def _provider_action_is_safe(self, action: dict[str, Any], observation: dict[str, Any]) -> bool:
@@ -275,6 +295,14 @@ class ObservationPlanner:
                 term in gateway_text for term in ("详情", "记录", "明细", "detail", "record")
             ) and self.state.pending_actions:
                 self.state.completed_actions.append(self.state.pending_actions.pop(0))
+                return
+            # 记下该网关是**有把握的语义解析**(provider 认定 / 强确定性命中),供随后
+            # mark_blocked 判定"导航已成功、目标可退伍"。不在这里立即退伍:网关可能只是
+            # 中转站,真正的目标控件要到下一页才出现(那时应真点它,而非提前算完成)。
+            if desired.get("action") in {"click", "reach"} and (
+                decision.source == "provider" or decision.confidence >= WEAK_GATEWAY_CONFIDENCE
+            ):
+                self.state.resolved_navigations.add(_norm_goal(desired))
             return
         desired = decision.desired_action
         if desired and self.state.pending_actions and desired == self.state.pending_actions[0]:
@@ -294,6 +322,14 @@ class ObservationPlanner:
                 if self.state.pending_actions and desired == self.state.pending_actions[0]:
                     self.state.completed_actions.append(self.state.pending_actions.pop(0))
                     return True
+        # 该导航目标此前被"有把握的语义网关"(provider/强确定性)解析并点开过,如今却仍
+        # 找不到更具体的目标控件而 blocked:说明网关本身就是目的地(用例措辞≠落地页标题,
+        # 如用例"客户资料"落在"会员档案"页),导航其实已成功,退伍放行而非误判 BLOCKED。
+        if desired.get("action") in {"click", "reach"} \
+                and _norm_goal(desired) in self.state.resolved_navigations \
+                and self.state.pending_actions and desired == self.state.pending_actions[0]:
+            self.state.completed_actions.append(self.state.pending_actions.pop(0))
+            return True
         return False
 
     def _resolve_click_target(self, desired: dict[str, Any],
