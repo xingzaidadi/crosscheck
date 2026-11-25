@@ -98,7 +98,55 @@ def main():
     assert ids == {"TC01"}, f"只有无歧义写用例应被翻正,实得 {ids}"
     print(f"    ✓ 5 条用例 → {len(got)} 条可翻正({sorted(ids)});只读/歧义/无关用例一律不配(宁缺毋滥)")
 
+    # 6) 可达性扣除:投影翻正只认"端点确知可达"的,未证可达的进 unproven(不虚高、不灌数)
+    _coverage_reachability_gate()
+
     print("\n全部通过 ✅  —— 契约→候选路由→readiness 翻正闭环打通,候选态、宁缺毋滥、零业务")
+
+
+def _coverage_reachability_gate():
+    """route_assign._coverage_report 的 flips 必须扣掉"端点未证可达"的候选。
+
+    构造:TC_HIT 候选端点已被某 ready 用例占用(确知可达)→可翻正;
+          TC_MISS 候选端点谁都没用过(未证可达)→不计 flips、进 unproven。
+    """
+    import tempfile
+    from pathlib import Path
+    import yaml
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+    from route_assign import _coverage_report  # noqa
+
+    eps = [
+        {"http": "POST", "path": "/api/items", "method_name": "createItem",
+         "request_dto": "CreateItemReq", "fields": [{"name": "title", "required": True}]},
+        {"http": "POST", "path": "/api/orders", "method_name": "createOrder",
+         "request_dto": "CreateOrderReq", "fields": [{"name": "itemId", "required": True}]},
+    ]
+    hit = _Case("TC_HIT", "create a new item")        # → /api/items
+    miss = _Case("TC_MISS", "create an order")        # → /api/orders
+    cands = assign_routes([hit, miss], eps)
+    assert {c.case_id for c in cands} == {"TC_HIT", "TC_MISS"}, [c.case_id for c in cands]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = Path(tmp)
+        (ws / "config").mkdir(parents=True)
+        # 一条已 ready 的用例占用 /api/items(=确知可达);/api/orders 无人占用(未证可达)
+        yaml.safe_dump({"by_case_id": {
+            "TC_READY": {"write": {"request": {"method": "POST", "url": "/api/items"}}}}},
+            open(ws / "config" / "case_routes.yaml", "w", encoding="utf-8"), allow_unicode=True)
+        yaml.safe_dump({
+            "TC_READY": {"ready": True, "blocked_by": [], "note": "ok"},
+            "TC_HIT": {"ready": False, "blocked_by": [], "note": "unknown"},
+            "TC_MISS": {"ready": False, "blocked_by": [], "note": "unknown"},
+        }, open(ws / "readiness.yaml", "w", encoding="utf-8"), allow_unicode=True)
+
+        rep = _coverage_report([hit, miss], cands, str(ws))
+        bl = rep["baseline"]
+        # /api/items 确知可达 → TC_HIT 可翻正;/api/orders 未证 → TC_MISS 进 unproven
+        assert bl["flips"] == 1, bl
+        assert bl["flips_reachable"] == ["TC_HIT"], bl["flips_reachable"]
+        assert bl["unproven_need_probe"] == ["TC_MISS"], bl["unproven_need_probe"]
+    print("    ✓ 可达性扣除:候选端点确知可达才计 flips,未证可达进 unproven(不虚高/不灌数)")
 
 
 if __name__ == "__main__":

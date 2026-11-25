@@ -72,15 +72,38 @@ def _coverage_report(cases, candidates, workspace: str) -> dict:
 
     path = Path(workspace) / "readiness.yaml"
     if path.is_file():
-        from core.readiness import load_readiness
+        from core.readiness import load_readiness, case_endpoints, norm_endpoint
         data = load_readiness(path)
         base_total = len(data) or total
         base_ready = sum(1 for v in data.values() if v.get("ready"))
         base_zero = sum(1 for v in data.values()
                         if v.get("ready") and "contract" in str(v.get("note", "")).lower())
-        # 只数"现状 false、被候选覆盖"的——它们才是真翻正(已 true 的不重复计)。
-        flips = sum(1 for cid in assigned
-                    if cid in data and not data[cid].get("ready"))
+        # 可达性下界:已 ready 用例覆盖的端点集(确知可达,reachable 的可证下界)。
+        # 不臆造 reachable——只认已证可达的端点,否则翻正就是灌数。
+        routes_path = Path(workspace) / "config" / "case_routes.yaml"
+        by_id = {}
+        if routes_path.is_file():
+            rdoc = yaml.safe_load(routes_path.read_text(encoding="utf-8")) or {}
+            by_id = rdoc.get("by_case_id") or {}
+        reachable_evidence: set[str] = set()
+        for cid, v in data.items():
+            if v.get("ready"):
+                reachable_evidence |= case_endpoints(cid, "", by_id.get(cid))
+        # 候选端点 → 归一化
+        cand_ep = {}
+        for c in candidates:
+            ep = getattr(c, "endpoint", "") or ""
+            url = ep.split(" ", 1)[-1] if " " in ep else ep
+            cand_ep[c.case_id] = norm_endpoint(url)
+        # 只数"现 false、被候选覆盖、且候选端点确知可达"的——这才是真翻正。
+        # 候选端点未在已证可达集的,不计(需真实线上探测才能判,凭契约翻=灌数)。
+        flips_reachable = [cid for cid in assigned
+                           if cid in data and not data[cid].get("ready")
+                           and cand_ep.get(cid) in reachable_evidence]
+        flips_unproven = [cid for cid in assigned
+                          if cid in data and not data[cid].get("ready")
+                          and cand_ep.get(cid) not in reachable_evidence]
+        flips = len(flips_reachable)
         proj_ready = base_ready + flips
         rep["baseline"] = {
             "total": base_total,
@@ -89,6 +112,8 @@ def _coverage_report(cases, candidates, workspace: str) -> dict:
             "ready_rate_after": round(proj_ready / base_total, 4) if base_total else 0.0,
             "zero_route_before": base_zero, "zero_route_after": base_zero + flips,
             "flips": flips,
+            "flips_reachable": sorted(flips_reachable),
+            "unproven_need_probe": sorted(flips_unproven),
         }
     return rep
 
@@ -133,9 +158,14 @@ def main() -> int:
         print(f"  {c.case_id:10s} → {c.endpoint:28s} score={c.score:.1f}  {c.signals}")
     bl = rep.get("baseline")
     if bl:
-        print(f"  可翻正清单(对真实 readiness.yaml):false 被候选覆盖 {bl['flips']} 条翻 true")
+        print(f"  可翻正清单(对真实 readiness.yaml,扣除不可达):确知可达 {bl['flips']} 条翻 true")
         print(f"    ready_rate  {bl['ready_rate_before']:.1%} → {bl['ready_rate_after']:.1%}"
               f"  ({bl['ready_before']}/{bl['total']} → {bl['ready_after']}/{bl['total']})")
+        if bl.get("flips_reachable"):
+            print(f"    可诚实翻正(端点已证可达):{bl['flips_reachable']}")
+        if bl.get("unproven_need_probe"):
+            print(f"    不可凭契约翻(端点未证可达,需真实线上探测,否则灌数):"
+                  f"{bl['unproven_need_probe']}")
         print(f"    zero_route  {bl['zero_route_before']} → {bl['zero_route_after']}(人审晋级并重算后生效)")
     else:
         print("  (workspace 无 readiness.yaml 基线,仅报可分配条数;接真实工作区后出 X%→Y%)")
