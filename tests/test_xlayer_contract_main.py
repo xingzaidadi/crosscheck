@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.xlayer_contract import (
     check_dangling_enum,
     check_default_filter_leak,
+    check_error_status_contract,
     check_pagination_invariants,
     run_contract_checks,
 )
@@ -98,7 +99,35 @@ def main() -> int:
     _assert(clean["consistent"] is True and clean["finding_count"] == 0, "干净 spec 应一致")
     print("[8] 干净 spec 判一致 ✓")
 
-    print("\nALL PASS · core.xlayer_contract 跨层契约(悬空枚举/默认过滤泄漏/分页不变量/聚合软门)")
+    # 9) 错误响应状态码契约(真实只读探测 /demand/api/* 7 端点所得):
+    #    approve 失败却回 HTTP 200(掩盖错误);5 个缺参端点回 500(客户端错当服务端错);
+    #    accept/batch/validate 是正范式(参数校验 → 400)。
+    err_samples = [
+        {"id": "approve", "http_status": 200, "success": False, "param_error": True},
+        {"id": "item/close", "http_status": 500, "success": False, "param_error": True},
+        {"id": "demand/close", "http_status": 500, "success": False, "param_error": True},
+        {"id": "accept/return", "http_status": 500, "success": False, "param_error": True},
+        {"id": "template/save", "http_status": 500, "success": False, "param_error": True},
+        {"id": "batchGetFdsPreSignedUrl", "http_status": 500, "success": False, "param_error": True},
+        {"id": "batch/validate", "http_status": 400, "success": False, "param_error": True},  # 正范式,不报
+    ]
+    f9 = check_error_status_contract(err_samples)
+    checks9 = [c.check for c in f9]
+    _assert("error_masked_as_success" in checks9, "approve 2xx 掩盖错误应检出")
+    _assert(checks9.count("client_error_as_server") == 5, f"5 个 5xx 客户端错应检出, got {checks9.count('client_error_as_server')}")
+    # batch/validate(400)是正范式,不应在任何发现里出现
+    _assert(all("batch/validate" not in c.detail for c in f9), "400 正范式不应报")
+    # 成功样本不检视
+    _assert(check_error_status_contract([{"id": "ok", "http_status": 200, "success": True}]) == [], "成功调用不报")
+    print("[9] error_status 契约检出(200掩盖错误/5xx客户端错)✓")
+
+    # 10) run_contract_checks 接入 error_status。
+    agg2 = run_contract_checks({"error_status": err_samples})
+    _assert(agg2["finding_count"] == 1 + 5, "1 掩盖 + 5 客户端错当服务端错")
+    _assert(agg2["consistent"] is False, "有发现则不一致")
+    print("[10] run_contract_checks 接入 error_status ✓")
+
+    print("\nALL PASS · core.xlayer_contract 跨层契约(悬空枚举/默认过滤泄漏/分页不变量/错误状态码契约/聚合软门)")
     return 0
 
 

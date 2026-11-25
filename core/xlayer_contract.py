@@ -10,6 +10,10 @@ Derived from live crosscheck runs where UI-tab contracts diverged from backend b
   3. A paginated response must satisfy page invariants (stable total across page sizes,
      pages == ceil(total/pageSize), returned rows == min(pageSize, remaining)).
      -> check_pagination_invariants
+  4. An error response must carry a transport status consistent with being an error: a
+     body that reports failure must not ride on a 2xx (masked error), and a client/validation
+     error must not surface as 5xx (server-fault status for a caller-fixable error).
+     -> check_error_status_contract
 
 All functions take abstract request/response/dictionary structures only — no domain terms,
 no field names baked in — so they stay portable under the core zero-business gate. They are
@@ -107,6 +111,39 @@ def check_pagination_invariants(pages_meta: list[dict[str, Any]]) -> list[Contra
     return findings
 
 
+def check_error_status_contract(error_samples: list[dict[str, Any]]) -> list[ContractFinding]:
+    """Verify that error responses carry a transport status consistent with being an error.
+
+    Each sample describes ONE failed call against a backend endpoint:
+      {"id": str, "http_status": int, "success": bool, "param_error": bool|None}
+      - http_status: the transport status line the backend returned,
+      - success: the body-level success flag (False == the call failed),
+      - param_error: True if the failure is a client input/validation error (optional).
+    Two transport-vs-body contract violations are flagged (all portable, no field names):
+      - masked_error: body says it failed (success is False) but http_status is 2xx, so a
+        caller that only inspects the status line mistakes failure for success.
+      - client_error_as_server: a client/validation failure (param_error) surfaces as 5xx
+        instead of 4xx, hiding a caller-fixable error behind a server-fault status.
+    """
+    findings: list[ContractFinding] = []
+    for s in error_samples:
+        if s.get("success") is True:
+            continue  # only inspect failed calls
+        http = s.get("http_status")
+        ident = s.get("id", "?")
+        if isinstance(http, int) and 200 <= http < 300:
+            findings.append(ContractFinding(
+                check="error_masked_as_success", severity="contract-risk",
+                detail=f"{ident}: body reports failure but http status is {http} (2xx)",
+                evidence={"id": ident, "http_status": http}))
+        if s.get("param_error") is True and isinstance(http, int) and 500 <= http < 600:
+            findings.append(ContractFinding(
+                check="client_error_as_server", severity="contract-risk",
+                detail=f"{ident}: client/validation error returned as {http} (5xx), expected 4xx",
+                evidence={"id": ident, "http_status": http}))
+    return findings
+
+
 def run_contract_checks(spec: dict[str, Any]) -> dict[str, Any]:
     """Run all applicable checks from an abstract spec; soft-gate (report only).
 
@@ -114,6 +151,7 @@ def run_contract_checks(spec: dict[str, Any]) -> dict[str, Any]:
       - dangling_enum: {"requested": [...], "dictionary": [...]}
       - default_filter_leak: {"unfiltered": [...], "scope": [...]}
       - pagination: [ {pageSize,pageNum,total,pages,returned}, ... ]
+      - error_status: [ {id,http_status,success,param_error}, ... ]
     """
     findings: list[ContractFinding] = []
     if "dangling_enum" in spec:
@@ -124,6 +162,8 @@ def run_contract_checks(spec: dict[str, Any]) -> dict[str, Any]:
         findings += check_default_filter_leak(d.get("unfiltered") or [], d.get("scope") or [])
     if "pagination" in spec:
         findings += check_pagination_invariants(spec["pagination"] or [])
+    if "error_status" in spec:
+        findings += check_error_status_contract(spec["error_status"] or [])
     return {
         "consistent": len(findings) == 0,
         "finding_count": len(findings),
