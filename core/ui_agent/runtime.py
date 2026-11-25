@@ -165,7 +165,9 @@ class AgentRuntime:
             quality_path = write_json(output / "quality.json", {
                 "accessibility": result.accessibility, "quality": result.quality,
             })
-            result.evidence.extend([map_path, quality_path])
+            decisions_path = write_json(output / "planner-decisions.json",
+                                        self._decision_log(result))
+            result.evidence.extend([map_path, quality_path, decisions_path])
             final_decision = planner.decide(
                 current_observation,
                 assertions_passed=all(item.get("passed") is True for item in result.assertions),
@@ -196,6 +198,39 @@ class AgentRuntime:
         trace.write_text(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
         result.evidence.append(str(trace))
         return result
+
+    @staticmethod
+    def _decision_log(result: AgentRuntimeResult) -> list[dict[str, Any]]:
+        """把每步 planner 决策整理成可复盘的明细:选了哪个控件、为什么、
+        候选都打了几分、判定来源(确定性/同义/provider)。这是"打开 planner
+        黑盒"的单独产物,与 trace.json 互补。"""
+        log: list[dict[str, Any]] = []
+        for index, decision in enumerate(result.planner_decisions, 1):
+            action = decision.get("action") or {}
+            chosen = str(action.get("text") or action.get("label") or action.get("target") or "")
+            candidates = decision.get("candidates") or []
+            top = candidates[0] if candidates else None
+            # 判定来源:provider 给出的 explore(无确定性候选)vs 确定性打分命中。
+            top_score = float((top or {}).get("score") or 0)
+            if decision.get("kind") == "explore" and decision.get("confidence", 0) and not candidates:
+                source = "provider"
+            elif top_score >= 100.0:
+                source = "exact_or_alias"
+            elif top_score >= 70.0:
+                source = "substring"
+            else:
+                source = "deterministic"
+            log.append({
+                "step": index,
+                "kind": decision.get("kind"),
+                "chosen": chosen,
+                "reason": decision.get("reason"),
+                "confidence": decision.get("confidence"),
+                "desired": decision.get("desired_action"),
+                "candidates": candidates,
+                "source": source,
+            })
+        return log
 
     @staticmethod
     def _capture(page, output: Path, name: str, result: AgentRuntimeResult) -> None:

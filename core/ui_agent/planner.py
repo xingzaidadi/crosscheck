@@ -109,6 +109,7 @@ class PlannerDecision:
     reason: str
     confidence: float
     desired_action: dict[str, Any] | None = None
+    candidates: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -174,17 +175,21 @@ class ObservationPlanner:
                         desired_action=desired,
                     )
             if action_visible(desired, observation):
+                candidates = self._rank_candidates(desired, observation)
                 if desired.get("action") == "click" and str(desired.get("text") or "") in {"详情", "查看详情", "明细"}:
                     return PlannerDecision("execute", desired, "detail navigation control is visible", .95,
-                                           desired_action=desired)
-                return PlannerDecision("execute", desired, "desired action is visible in current observation", .95,
-                                       desired_action=desired)
+                                           desired_action=desired, candidates=candidates)
+                resolved_action = self._resolve_click_target(desired, candidates)
+                return PlannerDecision("execute", resolved_action,
+                                       "desired action is visible in current observation", .95,
+                                       desired_action=desired, candidates=candidates)
             gateway = self._gateway_for(desired, observation)
             if gateway:
                 return PlannerDecision(
                     "explore", {"action": "click", "text": gateway["name"], "exploration": True},
                     "target is hidden; opening the best safe semantic gateway", gateway["confidence"],
                     desired_action=desired,
+                    candidates=self._rank_candidates(desired, observation),
                 )
             resolved = self._resolve_with_provider(desired, observation)
             if resolved:
@@ -290,6 +295,45 @@ class ObservationPlanner:
                     self.state.completed_actions.append(self.state.pending_actions.pop(0))
                     return True
         return False
+
+    def _resolve_click_target(self, desired: dict[str, Any],
+                              candidates: list[dict[str, Any]]) -> dict[str, Any]:
+        """把 click 动作的目标文字改写为实际命中的同义控件名。
+
+        ``action_visible`` 可能因**同义词**(用例"检索"、控件"查询")判定目标可见,
+        但原动作仍写着用例原词;若不改写,runtime 会拿原词去点、找不到控件。这里
+        在确定性候选里取最高分(且安全)的控件名回填,让同义目标真能点中。非 click
+        动作或已精确同名时原样返回。"""
+        if str(desired.get("action") or "") != "click":
+            return dict(desired)
+        original = str(desired.get("text") or "")
+        best = next((item for item in candidates
+                     if item.get("score", 0) >= 70 and not item.get("dangerous")
+                     and not item.get("attempted")), None)
+        if best and best["name"] != original:
+            action = dict(desired)
+            action["text"] = best["name"]
+            return action
+        return dict(desired)
+
+    def _rank_candidates(self, desired: dict[str, Any], observation: dict[str, Any]) -> list[dict[str, Any]]:
+        """全量候选控件及其确定性打分(供决策复盘落盘,不影响选择逻辑)。"""
+        target = str(desired.get("text") or desired.get("label") or desired.get("name")
+                     or desired.get("target") or "")
+        ranked: list[dict[str, Any]] = []
+        for control in observation.get("controls") or []:
+            name = _control_name(control)
+            if not name:
+                continue
+            score = _score_control(control, target, self.instruction)
+            ranked.append({
+                "name": name,
+                "score": round(float(score), 2),
+                "attempted": name in self.state.attempted_gateways,
+                "dangerous": _is_dangerous(control),
+            })
+        ranked.sort(key=lambda item: item["score"], reverse=True)
+        return ranked[:12]
 
     def _gateway_for(self, desired: dict[str, Any], observation: dict[str, Any]) -> dict[str, Any] | None:
         target = str(desired.get("text") or desired.get("label") or desired.get("name")
