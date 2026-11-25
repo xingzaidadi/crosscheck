@@ -117,7 +117,10 @@ def main() -> int:
     parser.add_argument("--check-spec", action="store_true",
                         help="开 CP-1' 语义软门:spec 过闸后跑 checker 复核(只落 spec_review+附提示,不阻断)")
     parser.add_argument("--semantic-llm", action="store_true",
-                        help="语义软门档位B 占位(本轮无真实模型,自动降级到档位A词法覆盖)")
+                        help="语义软门档位B:从 registry 取 spec_reviewer(需 workspace 注册且 SPEC_LLM=1;"
+                             "否则自动降级档位A词法覆盖)")
+    parser.add_argument("--spec-snapshot", dest="spec_snapshot", default=None,
+                        help="语义软门可复现判定:从复核快照读回(只读快照,绝不调模型)")
     parser.add_argument("--check-coverage", type=float, default=0.5,
                         help="语义软门档位A覆盖阈值(默认 0.5;低于则标『语义存疑·待人审』)")
     parser.add_argument("--auto-verify", action="store_true", help="建模产物自动置 human_verified(仅在已走人审流程时用)")
@@ -157,11 +160,24 @@ def main() -> int:
 
     routes = load_routes(config_dir() / "case_routes.yaml")
 
-    # CP-1' 语义软门:--check-spec 时装配 checker(--semantic-llm 为档位B占位,本轮降级档位A)。
+    # CP-1' 语义软门:--check-spec 时装配 checker。
+    #   --semantic-llm → 档位B(从 registry 取 spec_reviewer;没注册/未开 SPEC_LLM 自动降级A)。
+    #   --spec-snapshot → 可复现判定(只从快照读回,绝不调模型);优先于实时档位B。
     checker: StageAgent | None = None
     if args.check_spec:
+        spec_llm = None
+        if args.semantic_llm:
+            try:
+                from core.registry import get
+                spec_llm = get("spec_reviewer", "default")
+            except Exception:
+                spec_llm = None
+        spec_snapshot = None
+        if args.spec_snapshot:
+            import json as _json
+            spec_snapshot = _json.loads(Path(args.spec_snapshot).read_text(encoding="utf-8"))
         checker = build_checker(min_coverage=args.check_coverage,
-                                llm=("placeholder" if args.semantic_llm else None))
+                                llm=spec_llm, snapshot=spec_snapshot)
 
     def _spec_agent() -> StageAgent:
         return SpecAgent(

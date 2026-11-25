@@ -177,15 +177,18 @@ def make_readonly_db_factory(db_name: str = ""):
     return factory
 
 
-def build_checker(*, min_coverage: float = 0.5, llm: Any = None):
-    """装配 CP-1' 语义复核子 Agent(软门)。llm=None 时降级到档位A词法覆盖。
+def build_checker(*, min_coverage: float = 0.5, llm: Any = None, snapshot: Any = None):
+    """装配 CP-1' 语义复核子 Agent(软门)。
+
+    判定优先级(守可复现):snapshot 在场→只读快照可复现判定;否则 llm 可用→实时档位B
+    (仅生成快照用);都无→档位A 词法覆盖。llm/snapshot 皆 None 时逐位同历史现状。
 
     返回物符合 StageAgent 协议(produce),但【不放进三段 mapping】——它由
     orchestrator 的 checker= 单独入参接收,spec 段过闸后旁路跑,只产 spec_review。
     """
     from core.spec_checker import SpecChecker
 
-    return SpecChecker(min_coverage=min_coverage, llm=llm)
+    return SpecChecker(min_coverage=min_coverage, llm=llm, snapshot=snapshot)
 
 
 def build_agents(

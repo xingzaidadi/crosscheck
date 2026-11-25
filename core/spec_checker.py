@@ -143,19 +143,123 @@ def review_spec(exec_spec: dict, *, min_coverage: float = 0.5) -> dict:
     }
 
 
+def freeze_review(case_id: str, review: dict) -> dict:
+    """把一次(档位B)语义复核结果冻结成快照条目——判定与模型调用物理隔离的铁律载体。
+
+    快照是唯一真相源:生成时(SPEC_LLM=1)真调一次模型写进快照,之后判定只从快照
+    确定性读回(review_from_snapshot),绝不重调模型——守『可复现』铁律(照搬 oracle 档位B)。
+    """
+    return {
+        "case_id": str(case_id),
+        "tier": str(review.get("tier") or "llm"),
+        "status": str(review.get("status") or STATUS_REVIEW),
+        "faithful": bool(review.get("faithful", review.get("status") == STATUS_OK)),
+        "reasons": list(review.get("reasons") or []),
+        "semantic_gaps": list(review.get("semantic_gaps") or []),
+    }
+
+
+def _snapshot_index(snapshot: Any) -> dict[str, dict]:
+    """把快照(数组或 {case_id→条目})归一成 case_id→冻结条目 的索引。"""
+    index: dict[str, dict] = {}
+    rows = snapshot.get("reviews", snapshot) if isinstance(snapshot, dict) else snapshot
+    if isinstance(rows, dict):
+        for cid, row in rows.items():
+            if isinstance(row, dict):
+                index[str(cid)] = row
+    elif isinstance(rows, list):
+        for row in rows:
+            if isinstance(row, dict) and row.get("case_id"):
+                index[str(row["case_id"])] = row
+    return index
+
+
+def review_from_snapshot(exec_spec: dict, snapshot_index: dict[str, dict],
+                         *, min_coverage: float = 0.5) -> dict:
+    """可复现判定:只从冻结快照读回档位B 结果,绝不调模型。
+
+    档位A 的覆盖证据(coverage/missing)仍现算保留;快照缺该 case → 整体降级档位A。
+    """
+    base = review_spec(exec_spec, min_coverage=min_coverage)   # 档位A 证据(确定性)
+    case_id = str(exec_spec.get("case_id") or "")
+    frozen = snapshot_index.get(case_id)
+    if not frozen:
+        return base                                            # 快照无此 case → 纯档位A
+    merged = dict(base)
+    merged["tier"] = "llm"
+    merged["status"] = str(frozen.get("status") or base["status"])
+    merged["faithful"] = bool(frozen.get("faithful", merged["status"] == STATUS_OK))
+    # 档位B 的语义理由叠加在档位A 词法理由之上(人审能同时看到两档依据)
+    merged["reasons"] = list(base.get("reasons") or []) + list(frozen.get("reasons") or [])
+    merged["semantic_gaps"] = list(frozen.get("semantic_gaps") or [])
+    return merged
+
+
 @dataclass
 class SpecChecker:
     """CP-1 语义复核子 Agent:读 exec_spec(含原文副本)→ 产 spec_review 候选。
 
     与 maker(SpecAgent)分离:maker 只能写 exec_spec,checker 只能写 spec_review
     (由 stage_runner.enforce_write_scope 的旁路白名单强制),互不改对方产物。
-    档位B(LLM)占位:传入 llm 且可用时走语义复核,否则降级到档位A词法覆盖。
+
+    判定优先级(守可复现):
+      - snapshot 在场 → review_from_snapshot(只读快照,绝不调模型)=可复现判定;
+      - 否则 llm 可用 → 实时档位B(仅"生成快照"那一次性离线动作用);
+      - 都无 → 档位A 词法覆盖(tier=lexical),逐位同历史现状。
     """
     min_coverage: float = 0.5
-    llm: Any = None               # 档位B 接口位;None=纯档位A
+    llm: Any = None               # 档位B provider(registry 取);None=无实时档位B
+    snapshot: Any = None          # case_id→冻结条目 索引;在场即走可复现判定
 
     def produce(self, stage: str, context: Any) -> dict[str, Any]:
         exec_spec = context.upstream_artifact("spec")
-        review = review_spec(exec_spec, min_coverage=self.min_coverage)
-        # 档位B 占位:有 llm 则可在此叠加语义判断(本轮不接真实模型,降级到档位A)
+        if self.snapshot:
+            review = review_from_snapshot(exec_spec, _snapshot_index(self.snapshot),
+                                          min_coverage=self.min_coverage)
+        elif self.llm is not None and not isinstance(self.llm, str):
+            review = self._review_live(exec_spec)
+        else:
+            review = review_spec(exec_spec, min_coverage=self.min_coverage)
         return {REVIEW_ARTIFACT: review}
+
+    def _review_live(self, exec_spec: dict) -> dict:
+        """实时档位B:调 provider 做语义复核,叠加在档位A 证据上。
+
+        仅用于"生成快照"的一次性离线动作(结果须经 freeze_review 冻结方可复现)。
+        provider 不可用/返回空 → 纯档位A 降级(离线/零成本铁律)。
+        """
+        base = review_spec(exec_spec, min_coverage=self.min_coverage)
+        raw = (exec_spec.get("raw") or {})
+        verdict = self._invoke(provider=self.llm, context={
+            "case_id": str(exec_spec.get("case_id") or ""),
+            "steps": str(raw.get("steps") or ""),
+            "expected": str(raw.get("expected") or ""),
+            "title": str(exec_spec.get("title") or ""),
+            "ui": exec_spec.get("ui") or {},
+            "request": exec_spec.get("request") or {},
+            "endpoints": exec_spec.get("endpoints") or [],
+            "assertions": exec_spec.get("assertions") or {},
+        })
+        if not isinstance(verdict, dict):
+            return base                                        # 降级档位A
+        status = str(verdict.get("status") or "")
+        if status not in {STATUS_OK, STATUS_REVIEW}:
+            status = STATUS_OK if verdict.get("faithful") else STATUS_REVIEW
+        merged = dict(base)
+        merged["tier"] = "llm"
+        merged["status"] = status
+        merged["faithful"] = bool(verdict.get("faithful", status == STATUS_OK))
+        merged["reasons"] = list(base.get("reasons") or []) + list(verdict.get("reasons") or [])
+        merged["semantic_gaps"] = list(verdict.get("semantic_gaps") or [])
+        return merged
+
+    @staticmethod
+    def _invoke(*, provider: Any, context: dict) -> Any:
+        """调 provider(registry 可调用对象或带 .review 方法);任何异常→None 降级。"""
+        try:
+            if callable(provider):
+                return provider(**context)
+            review = getattr(provider, "review", None)
+            return review(**context) if callable(review) else None
+        except Exception:        # noqa: BLE001 —— 软门第二档不得拖垮主流程
+            return None
