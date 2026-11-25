@@ -102,11 +102,18 @@ def _read_demo(demo_ws: str | None, run_demo: bool) -> bool:
         demo_ws = demo_ws or str(_ROOT / "_scorecard_demo")
     if not demo_ws:
         return False
-    runs = Path(demo_ws) / "runs"
-    if not runs.exists():
-        return False
-    summaries = sorted(runs.glob("*/summary.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for summary in summaries:
+    base = Path(demo_ws)
+    # local_demo.py 直接产 <ws>/demo-result.json(三源打通即 passed=True、带 ui/api/db);
+    # 历史编排产物落 <ws>/runs/*/summary.json。两种位置都认,避免真打通却读不到。
+    candidates: list[Path] = []
+    direct = base / "demo-result.json"
+    if direct.exists():
+        candidates.append(direct)
+    runs = base / "runs"
+    if runs.exists():
+        candidates.extend(sorted(runs.glob("*/summary.json"),
+                                 key=lambda p: p.stat().st_mtime, reverse=True))
+    for summary in candidates:
         try:
             data = json.loads(summary.read_text(encoding="utf-8"))
         except Exception:
