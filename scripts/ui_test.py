@@ -81,7 +81,11 @@ def _evaluate_oracle(page, oracle: dict[str, Any]) -> dict[str, Any]:
         if not located or not actual:
             ok = None
         else:
-            ok = actual == expected or expected in actual
+            # 铁律『等值即等值』:field_text_equals 是"等于"语义,必须严格 ==。
+            # 旧逻辑 `or expected in actual` 是子串漏网:actual="100"/expected="10"、
+            # actual="Not approved"/expected="approved" 都会误判通过。子串比较只允许
+            # 出现在显式的 *_contains kind,等值类一律严格相等。
+            ok = actual == expected
     elif oracle["kind"] == "api_status":
         # API status is evaluated by the autonomous runner from captured
         # response metadata; this branch is retained for legacy callers.

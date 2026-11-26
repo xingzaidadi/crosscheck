@@ -18,6 +18,94 @@ from core.ui_agent.provider import planner_provider
 from core.ui_agent.capabilities import accessibility_audit, browser_quality, semantic_map, write_json
 
 
+# ── 缺陷2a:导航后置条件 ─────────────────────────────────────────────
+# "点击成功"只证明按钮被点,不证明到达目标页。下列 helper 在导航意图动作后
+# 验证页面是否真的改变(URL 变化 或 页面签名变化)。拿不到可比信号 → INCONCLUSIVE,
+# 页面毫无变化 → FAILED。绝不把"点了没反应"当 PASSED。
+
+_NAV_TARGET_TERMS = ("详情", "明细", "记录", "detail", "record")
+
+
+def _navigation_intent(decision) -> bool:
+    """该决策是否带"到达某页/某目标"的导航意图。
+
+    认两类:desired_action 为 reach;或 click 的目标像页面/菜单导航(由 planner 的
+    desired_action.action 标注)。纯 in-page 操作(筛选、勾选、输入)不在此列,避免误伤。
+    """
+    desired = getattr(decision, "desired_action", None) or {}
+    action = str(desired.get("action") or "")
+    if action == "reach":
+        return True
+    if action == "open_first_record":
+        return True
+    # click 明确声明要进入目标页(target/text 含页面语义词)时也算导航意图
+    if action == "click":
+        target = str(desired.get("target") or desired.get("text") or "")
+        if any(term in target for term in _NAV_TARGET_TERMS):
+            return True
+    return False
+
+
+def _page_signature(page) -> dict:
+    """抓一个轻量页面签名:URL + 正文长度 + 可见标题文本集合。防御性,任何异常都降级。"""
+    sig = {"url": "", "body_len": -1, "headings": ""}
+    try:
+        sig["url"] = page.url
+    except Exception:
+        pass
+    try:
+        body = page.locator("body")
+        text = body.inner_text(timeout=2000) if body.count() else ""
+        sig["body_len"] = len(text.strip())
+    except Exception:
+        pass
+    try:
+        headings = page.locator("h1,h2,h3,[role='heading']").all_inner_texts()
+        sig["headings"] = "|".join(sorted(str(h).strip() for h in headings))[:2000]
+    except Exception:
+        pass
+    return sig
+
+
+def _settle_and_reacquire(page):
+    """点击后等待稳定,并在开新标签页时切到最新页。"""
+    try:
+        page.wait_for_timeout(250)
+        pages = page.context.pages
+        if pages and pages[-1] != page:
+            page = pages[-1]
+            page.wait_for_load_state("domcontentloaded", timeout=10000)
+        wait_for_settle(page)
+    except Exception:
+        pass
+    return page
+
+
+def _verify_navigation(page, before: dict | None) -> dict:
+    """比对导航前后签名,返回 {status, reason}。
+
+    - URL 变化 或 页面签名(正文长度/标题)变化 → PASSED(确实跳转/切换视图)。
+    - 完全没变 → FAILED(点击等于空操作,没到达目标)。
+    - 拿不到有效的 before/after 签名 → INCONCLUSIVE(不凭空判成功)。
+    """
+    if not before:
+        return {"status": "INCONCLUSIVE", "reason": "navigation baseline unavailable; cannot confirm arrival"}
+    after = _page_signature(page)
+    if before.get("url") and after.get("url") and before["url"] != after["url"]:
+        return {"status": "PASSED", "reason": f"url changed: {before['url']} -> {after['url']}"}
+    # URL 未变(SPA 内切换):看页面签名是否变化
+    before_body = before.get("body_len", -1)
+    after_body = after.get("body_len", -1)
+    headings_changed = (before.get("headings") or "") != (after.get("headings") or "")
+    body_changed = before_body >= 0 and after_body >= 0 and before_body != after_body
+    if headings_changed or body_changed:
+        return {"status": "PASSED", "reason": "page view changed after navigation click"}
+    if after_body < 0 and after.get("url") in ("", None):
+        return {"status": "INCONCLUSIVE", "reason": "post-click page signature unavailable; cannot confirm arrival"}
+    return {"status": "FAILED",
+            "reason": "navigation click had no effect: still on same URL and page view unchanged (did not reach target)"}
+
+
 @dataclass
 class AgentRuntimeResult:
     status: str
@@ -87,6 +175,10 @@ class AgentRuntime:
                     result.error = decision.reason
                     break
                 action = decision.action
+                # 缺陷2a:导航意图动作必须有"到达目标"的后置条件。点击只能证明"点了",
+                # 不能证明"到了"。先快照导航前的 URL+页面签名,点击后比对是否真的跳转。
+                nav_intent = _navigation_intent(decision)
+                nav_before = _page_signature(page) if nav_intent else None
                 decision = assess_action(action, policy=self.policy, allow_write=self.allow_write,
                                          write_scope=self.write_scope)
                 row = {"step": index, "action": action, "plan_kind": result.planner_decisions[-1]["kind"],
@@ -127,6 +219,21 @@ class AgentRuntime:
                     result.status = "BLOCKED" if row.get("plan_kind") == "explore" else "FAILED"
                     result.error = str(row.get("error") or "action failed")
                     break
+                # 缺陷2a:导航意图动作在 mark_success 前必须验证"确实到达"。
+                # 先让页面稳定,再比对导航前后的 URL+页面签名:都没变 → 点击等于空操作,
+                # 判 FAILED(不是 PASSED);拿不到可比信号 → INCONCLUSIVE,绝不冒充成功。
+                if nav_intent:
+                    page = _settle_and_reacquire(page)
+                    verdict = _verify_navigation(page, nav_before)
+                    row["navigation_check"] = verdict
+                    if verdict["status"] == "FAILED":
+                        result.status = "FAILED"
+                        result.error = verdict["reason"]
+                        break
+                    if verdict["status"] == "INCONCLUSIVE":
+                        result.status = "INCONCLUSIVE"
+                        result.error = verdict["reason"]
+                        break
                 planner.mark_success(PlannerDecision(
                     kind=result.planner_decisions[-1]["kind"], action=action,
                     reason=result.planner_decisions[-1]["reason"],

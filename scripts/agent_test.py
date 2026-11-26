@@ -29,6 +29,54 @@ from core.workspace import set_workspace  # noqa: E402
 from scripts.ui_run import _profile_for_url  # noqa: E402
 
 
+# 必测场景:这些场景只要被纳入本次运行,其结果就必须参与整体聚合。
+# authorized_write 等需显式授权、不自动执行的场景不在必测集内(不跑不记红)。
+_REQUIRED_SCENARIO_VERDICT_WEIGHT = {
+    "PASSED": 0,
+    # 任一必测场景 FAILED → 整体 FAILED(最高优先级)。
+    "FAILED": 3,
+    "DRAFT_FAILED": 3,
+    "ENV_ERROR": 3,
+    # 未完成/未判定 → 整体最多 PARTIAL,绝不冒充全量 PASSED。
+    "BLOCKED": 2,
+    "INCONCLUSIVE": 2,
+    "SKIPPED_NEEDS_AUTH": 2,
+    "SKIPPED_UNKNOWN_STATE": 2,
+    "NOT_RUN": 2,
+    "UNKNOWN": 2,
+}
+
+
+def aggregate_scenario_status(scenario_matrix: dict) -> str:
+    """把逐场景 verdict 聚合成整体状态(确定性、纯函数)。
+
+    铁律『聚合不漏』:
+      - 任一必测场景 FAILED/DRAFT_FAILED/ENV_ERROR → 整体 FAILED。
+      - 否则任一必测场景 BLOCKED/INCONCLUSIVE/SKIPPED_*/NOT_RUN → 整体 PARTIAL(禁止 PASSED)。
+      - 全部必测场景 PASSED 且至少有一条 → 整体 PASSED。
+      - 没有任何场景可聚合 → INCONCLUSIVE(不无依据判绿)。
+
+    主流程结果单独保留在 happy_path_status,不与整体混同。
+    """
+    rows = (scenario_matrix or {}).get("scenarios") or []
+    if not rows:
+        return "INCONCLUSIVE"
+    worst = 0
+    counted = 0
+    for row in rows:
+        verdict = str(row.get("verdict") or "UNKNOWN")
+        weight = _REQUIRED_SCENARIO_VERDICT_WEIGHT.get(verdict, 2)
+        worst = max(worst, weight)
+        counted += 1
+    if counted == 0:
+        return "INCONCLUSIVE"
+    if worst >= 3:
+        return "FAILED"
+    if worst == 2:
+        return "PARTIAL"
+    return "PASSED"
+
+
 def run(args) -> dict:
     workspace = Path(args.workspace).resolve()
     workspace.mkdir(parents=True, exist_ok=True)
@@ -253,6 +301,11 @@ def run(args) -> dict:
               "report_dir": str(run_dir)}
     if scenario_matrix is not None:
         report["scenario_matrix"] = scenario_matrix
+        # 缺陷1 修复:区分"主流程结果"与"本次全部要求的结果"。
+        # happy_path_status 保留主流程单条结果;report["status"] 改读整体聚合,
+        # 存在必测场景失败/未完成时整体绝不显示全量 PASSED。
+        report["happy_path_status"] = execution["status"]
+        report["status"] = aggregate_scenario_status(scenario_matrix)
     report["asset_reused"] = bool(reusable_asset)
     if reusable_asset:
         report["asset_id"] = reusable_asset.get("asset_id")
@@ -287,7 +340,13 @@ def main() -> int:
     args.no_persist = not args.save_regression
     report = run(args)
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0 if report["status"] == "PASSED" else 4 if report["status"] in {"NEEDS_INPUT", "AUTH_REQUIRED", "BLOCKED"} else 1
+    status = report["status"]
+    # 退出码:只有整体 PASSED 才 0;PARTIAL/未完成类非 0(CI 可据此阻断),FAILED → 1。
+    if status == "PASSED":
+        return 0
+    if status in {"NEEDS_INPUT", "AUTH_REQUIRED", "BLOCKED", "PARTIAL"}:
+        return 4
+    return 1
 
 
 if __name__ == "__main__":
