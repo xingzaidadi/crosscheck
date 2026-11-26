@@ -77,6 +77,58 @@ def aggregate_scenario_status(scenario_matrix: dict) -> str:
     return "PASSED"
 
 
+def _resolve_session(workspace: Path, explicit: str, profile) -> dict:
+    """缺陷6:按优先级自动发现登录态,返回 {session, source}。
+
+    优先级(高→低):
+      1. --session 显式指定且文件存在     → source="explicit"
+      2. 站点档案的 .auth/<site>.json      → source="profile_auth"
+      3. 工作区 .auth/discovered-session.json(上次人工接管后沉淀) → source="discovered"
+      4. 都没有                             → source="none"(session="")
+
+    诚实:只认**真实存在**的 session 文件;discovered-session.json 此前只写不读,
+    导致人工登录一次后续仍反复要求登录——这里补上回读。不伪造、不猜路径。
+    """
+    if explicit and Path(explicit).is_file():
+        return {"session": explicit, "source": "explicit"}
+    if profile is not None:
+        profile_session = getattr(profile, "session_file", None)
+        profile_session = profile_session() if callable(profile_session) else profile_session
+        if profile_session and Path(profile_session).is_file():
+            return {"session": str(profile_session), "source": "profile_auth"}
+    discovered = workspace / ".auth" / "discovered-session.json"
+    if discovered.is_file():
+        return {"session": str(discovered), "source": "discovered"}
+    return {"session": "", "source": "none"}
+
+
+def _summarize_planning_source(execution: dict) -> dict:
+    """缺陷6:如实汇报本次规划用了什么来源(确定性 vs 插件/LLM),不含糊其辞。
+
+    默认无 LLM:规划是确定性/同义/子串匹配。若 workspace 注册了 ui_planner 插件(可接 LLM),
+    其决策会在步骤里标 source="provider"。这里统计各来源步数,给出 provider_used 布尔,
+    让报告读者清楚"这条 PASS 是规则判的还是模型判的"。
+    """
+    decisions = execution.get("planner_decisions") or []
+    counts: dict[str, int] = {}
+    for dec in decisions:
+        src = str(dec.get("source") or "")
+        if src == "provider":
+            counts["provider"] = counts.get("provider", 0) + 1
+        elif dec.get("kind") == "explore" and dec.get("confidence") and not dec.get("candidates"):
+            counts["provider"] = counts.get("provider", 0) + 1
+        else:
+            counts["deterministic"] = counts.get("deterministic", 0) + 1
+    provider_used = counts.get("provider", 0) > 0
+    return {
+        "provider_used": provider_used,
+        "mode": "provider_plugin" if provider_used else "deterministic",
+        "step_source_counts": counts,
+        "note": ("workspace ui_planner 插件参与了部分决策(可能含 LLM)"
+                 if provider_used else "全程确定性规划(精确/同义/子串匹配),未使用 LLM"),
+    }
+
+
 def run(args) -> dict:
     workspace = Path(args.workspace).resolve()
     workspace.mkdir(parents=True, exist_ok=True)
@@ -112,15 +164,23 @@ def run(args) -> dict:
                 } for item in plan.unresolved_expectations]}
     session = args.session or ""
     profile = _profile_for_url(workspace, args.url)
+    session_source = "explicit" if session else "none"
     if profile and not args.no_session_refresh:
         try:
             session = ensure_session(profile, site_credentials(profile.site), session_file=session)
+            session_source = "ensure_session" if session else session_source
         except (LoginError, OSError, ValueError) as exc:
             return {"status": "AUTH_REQUIRED", "reason": str(exc), "run_id": run_id,
                     "plan": plan.to_dict()}
     elif session and not Path(session).is_file():
         return {"status": "AUTH_REQUIRED", "reason": "session file does not exist", "run_id": run_id,
                 "plan": plan.to_dict()}
+    # 缺陷6:凭据登录拿不到 session 时,回退到已沉淀的登录态(profile .auth / discovered),
+    # 不再无视上次人工登录结果反复要求登录。优先级在 _resolve_session 内保证。
+    if not session or not Path(session).is_file():
+        resolved = _resolve_session(workspace, args.session or "", profile)
+        session = resolved["session"]
+        session_source = resolved["source"]
     reusable_asset = find_reusable_asset(workspace, plan.to_dict())
     if reusable_asset:
         plan.actions = list((reusable_asset.get("payload") or {}).get("actions") or plan.actions)
@@ -309,6 +369,11 @@ def run(args) -> dict:
     report["asset_reused"] = bool(reusable_asset)
     if reusable_asset:
         report["asset_id"] = reusable_asset.get("asset_id")
+    # 缺陷6:诚实标注本次运行的来源——登录态从哪来、规划用确定性还是插件/LLM。
+    report["provenance"] = {
+        "session_source": session_source,
+        "planning": _summarize_planning_source(execution),
+    }
     (run_dir / "summary.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
 
