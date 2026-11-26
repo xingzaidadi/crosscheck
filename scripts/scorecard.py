@@ -56,20 +56,64 @@ def _read_coverage(coverage_json: str | None) -> float:
     return float(data.get("totals", {}).get("percent_covered", 0.0))
 
 
+def _load_workspace_routes(workspace: Path) -> dict:
+    """读 workspace 的 case 路由表(case_routes.yaml),供零路由判定取用例真实接口。"""
+    path = workspace / "config" / "case_routes.yaml"
+    if not path.exists():
+        return {}
+    try:
+        import yaml
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+
+
+def _load_contract_endpoints(workspace: Path) -> tuple[set[str], dict]:
+    """从 workspace 已摄取的契约产物抽出接口 path 集合 + 可追溯指纹。
+
+    契约落盘在 <ws>/knowledge_base/contracts/*.json(contract_ingest 产物)。
+    返回 (endpoints, fingerprint);fingerprint 记每个契约文件 sha256(前12)+接口数,
+    让『零路由直出』这一分对应哪些真实契约可核对、可复算。无契约 → 空集(零路由=0,不冒充)。
+    """
+    from core.readiness import contract_endpoints
+    import hashlib
+    contracts_dir = workspace / "knowledge_base" / "contracts"
+    eps: set[str] = set()
+    fp: dict = {}
+    if not contracts_dir.exists():
+        return eps, fp
+    for f in sorted(contracts_dir.glob("*.json")):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        file_eps = contract_endpoints(data)
+        eps |= file_eps
+        fp[f.name] = {"sha256_12": hashlib.sha256(f.read_bytes()).hexdigest()[:12],
+                      "endpoints": len(file_eps)}
+    return eps, fp
+
+
 def _read_readiness(workspace: str | None) -> tuple[int, int, int]:
-    """返回 (cases_total, ready_true, zero_route)。zero_route 估为"ready 且无 blocked_by"。"""
+    """返回 (cases_total, ready_true, zero_route)。
+
+    zero_route(零人工路由直出)= ready 且其需要的接口被已摄取契约覆盖的用例数,
+    由 core.readiness.contract_direct_cases 做用例接口↔契约接口的结构比对确定性判定——
+    不再靠扫 note 里是否出现 'contract' 字样(那是旧的脆弱启发式,readiness 管线从不产出该字样,
+    导致零路由恒为 0)。无契约/无 workspace → 0,如实不冒充。"""
     if not workspace:
         return 0, 0, 0
-    from core.readiness import load_readiness
-    path = Path(workspace) / "readiness.yaml"
+    from core.readiness import load_readiness, contract_direct_cases
+    ws = Path(workspace)
+    path = ws / "readiness.yaml"
     if not path.exists():
         return 0, 0, 0
     data = load_readiness(path)
     total = len(data)
     ready = sum(1 for v in data.values() if v.get("ready"))
-    # 近似"零人工路由":note 标记为契约/源码直出的 ready 项
-    zero_route = sum(1 for v in data.values()
-                     if v.get("ready") and "contract" in str(v.get("note", "")).lower())
+    contract_eps, _ = _load_contract_endpoints(ws)
+    routes = _load_workspace_routes(ws)
+    zero_route = len(contract_direct_cases(data, contract_eps, routes))
     return total, ready, zero_route
 
 
@@ -275,11 +319,23 @@ def main() -> int:
     # 这里把当次输入的内容 hash + 分桶计数记进来,让"这张分数卡对应哪份 readiness"
     # 可追溯、可复算——不改 gitignore 策略,只锁住分数的输入指纹。
     readiness_fp = _readiness_fingerprint(args.workspace)
+    # 零路由直出证据:哪些契约覆盖了哪些 ready 用例 → 这一分可核对、可复算。
+    zero_route_ev: dict = {}
+    if args.workspace:
+        from core.readiness import load_readiness, contract_direct_cases
+        ws = Path(args.workspace)
+        contract_eps, contract_fp = _load_contract_endpoints(ws)
+        direct = sorted(contract_direct_cases(load_readiness(ws / "readiness.yaml"),
+                                              contract_eps, _load_workspace_routes(ws)))
+        zero_route_ev = {"contract_fingerprint": contract_fp,
+                         "contract_endpoint_count": len(contract_eps),
+                         "direct_cases": direct, "direct_count": len(direct)}
     card["sources"] = {
         "tests": "run_tests.py" if args.run_tests else "cli-provided",
         "coverage": args.coverage_json or "(none)",
         "readiness": (args.workspace or "(none)"),
         "readiness_fingerprint": readiness_fp,
+        "zero_route_evidence": zero_route_ev,
         "oracle": (args.suite or "(none)"),
         "demo": "run" if args.run_demo else (args.demo_workspace or "(none)"),
         "generalization_evidence": systems_ev,
