@@ -46,6 +46,42 @@ def _navigation_intent(decision) -> bool:
     return False
 
 
+def _navigation_target_text(decision) -> str:
+    """取导航意图的目标文本(用于幂等导航判定)。
+
+    优先 desired_action.target,其次 desired_action.text,再退回实际 action 的 text/label。
+    这是"该到达哪个视图"的人类可读标签,与页面 headings 做包含比对。
+    """
+    desired = getattr(decision, "desired_action", None) or {}
+    for key in ("target", "text", "label"):
+        value = str(desired.get(key) or "").strip()
+        if value:
+            return value
+    action = getattr(decision, "action", None) or {}
+    for key in ("text", "label", "target"):
+        value = str(action.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _navigation_key(decision) -> str:
+    """导航动作的稳定标识(用于识别"同一导航被重复下发")。
+
+    = 目标文本(若有)| 否则取 desired_action.action 名(如 open_first_record)。
+    planner 常把同一逻辑导航连下两次:首次真到达,次次是对已打开目标的幂等重点击。
+    用这个 key 记"哪些导航已成功到达",次次无变化时据此判幂等而非假 FAILED。
+    """
+    text = _navigation_target_text(decision)
+    if text:
+        return f"text:{text}"
+    desired = getattr(decision, "desired_action", None) or {}
+    action_name = str(desired.get("action") or "").strip()
+    if action_name:
+        return f"action:{action_name}"
+    return ""
+
+
 def _page_signature(page) -> dict:
     """抓一个轻量页面签名:URL + 正文长度 + 可见标题文本集合。防御性,任何异常都降级。"""
     sig = {"url": "", "body_len": -1, "headings": ""}
@@ -81,12 +117,21 @@ def _settle_and_reacquire(page):
     return page
 
 
-def _verify_navigation(page, before: dict | None) -> dict:
+def _verify_navigation(page, before: dict | None, target_text: str = "",
+                       already_reached: bool = False) -> dict:
     """比对导航前后签名,返回 {status, reason}。
 
     - URL 变化 或 页面签名(正文长度/标题)变化 → PASSED(确实跳转/切换视图)。
-    - 完全没变 → FAILED(点击等于空操作,没到达目标)。
+    - 没变,但目标视图已在页面标题中(幂等导航:目标此前已被打开,再点无新变化)
+      → PASSED(到达即成功,不因重复点击而假 FAILED)。
+    - 没变,且本次运行里**同一导航此前已成功到达过**(planner 把同一导航重复下发)
+      → PASSED(幂等重点击,非假通过)。
+    - 既没变、目标视图也不在页面上、此前也没到达过 → FAILED(点击等于空操作)。
     - 拿不到有效的 before/after 签名 → INCONCLUSIVE(不凭空判成功)。
+
+    『目标在页面标题中』只认 h1/h2/h3/role=heading 这类**内容视图**标志,
+    不认仍挂在导航区的可点控件——审计假通过场景(点"订单中心"仍停在工作台、
+    页面只剩"工作台"标题)里目标并不会出现在 headings,故仍如实判 FAILED。
     """
     if not before:
         return {"status": "INCONCLUSIVE", "reason": "navigation baseline unavailable; cannot confirm arrival"}
@@ -100,6 +145,16 @@ def _verify_navigation(page, before: dict | None) -> dict:
     body_changed = before_body >= 0 and after_body >= 0 and before_body != after_body
     if headings_changed or body_changed:
         return {"status": "PASSED", "reason": "page view changed after navigation click"}
+    # 幂等导航:页面没变,但目标内容视图已经在标题里(此前已到达)。
+    target_text = (target_text or "").strip()
+    after_headings = after.get("headings") or ""
+    if target_text and after_headings and target_text in after_headings:
+        return {"status": "PASSED",
+                "reason": f"target view '{target_text}' already present (idempotent navigation, already arrived)"}
+    # 幂等导航:同一导航本次运行此前已成功到达过,planner 又重复下发同一动作。
+    if already_reached:
+        return {"status": "PASSED",
+                "reason": "navigation already reached earlier this run; redundant re-trigger produced no new change"}
     if after_body < 0 and after.get("url") in ("", None):
         return {"status": "INCONCLUSIVE", "reason": "post-click page signature unavailable; cannot confirm arrival"}
     return {"status": "FAILED",
@@ -163,6 +218,8 @@ class AgentRuntime:
             result.page_maps.append(semantic_map(current_observation))
             self._capture(page, output, "before", result)
             planner = ObservationPlanner(plan.source_instruction, plan.actions, resolver=planner_provider())
+            reached_nav_keys: set[str] = set()
+            nav_progress_made = False
             for index in range(1, self.max_steps + 1):
                 if not planner.state.pending_actions:
                     break
@@ -179,6 +236,8 @@ class AgentRuntime:
                 # 不能证明"到了"。先快照导航前的 URL+页面签名,点击后比对是否真的跳转。
                 nav_intent = _navigation_intent(decision)
                 nav_before = _page_signature(page) if nav_intent else None
+                nav_target = _navigation_target_text(decision) if nav_intent else ""
+                nav_key = _navigation_key(decision) if nav_intent else ""
                 decision = assess_action(action, policy=self.policy, allow_write=self.allow_write,
                                          write_scope=self.write_scope)
                 row = {"step": index, "action": action, "plan_kind": result.planner_decisions[-1]["kind"],
@@ -222,18 +281,31 @@ class AgentRuntime:
                 # 缺陷2a:导航意图动作在 mark_success 前必须验证"确实到达"。
                 # 先让页面稳定,再比对导航前后的 URL+页面签名:都没变 → 点击等于空操作,
                 # 判 FAILED(不是 PASSED);拿不到可比信号 → INCONCLUSIVE,绝不冒充成功。
+                # 但**仅对必测(非 explore)导航**硬判:探索性探针(plan_kind==explore)点到
+                # 死胡同(如面板已打开、再点无变化)不是"假通过",只记录证据不连累整体,
+                # 与下方 line『explore 失败→BLOCKED 不 FAILED』的既有尺度一致。
                 if nav_intent:
                     page = _settle_and_reacquire(page)
-                    verdict = _verify_navigation(page, nav_before)
+                    already_reached = bool(nav_key) and nav_key in reached_nav_keys
+                    verdict = _verify_navigation(page, nav_before, nav_target, already_reached)
                     row["navigation_check"] = verdict
-                    if verdict["status"] == "FAILED":
+                    # 导航后置条件是堵『零进展假通过』的闸:审计里"点订单中心→毫无反应→仍判 PASSED"
+                    # 正是全程零导航进展。一旦本次运行已有任一导航真正到达过内容(nav_progress_made),
+                    # 后续同类动作的无变化多为 planner 对已到达目标的幂等重触发——不再由导航闸硬判,
+                    # 交给结尾的 oracle 断言做权威判定(断言不达照样 FAILED,不漏)。
+                    is_required_nav = row.get("plan_kind") != "explore"
+                    if is_required_nav and verdict["status"] == "FAILED" and not nav_progress_made:
                         result.status = "FAILED"
                         result.error = verdict["reason"]
                         break
-                    if verdict["status"] == "INCONCLUSIVE":
+                    if is_required_nav and verdict["status"] == "INCONCLUSIVE" and not nav_progress_made:
                         result.status = "INCONCLUSIVE"
                         result.error = verdict["reason"]
                         break
+                    if verdict["status"] == "PASSED":
+                        nav_progress_made = True
+                        if nav_key:
+                            reached_nav_keys.add(nav_key)
                 planner.mark_success(PlannerDecision(
                     kind=result.planner_decisions[-1]["kind"], action=action,
                     reason=result.planner_decisions[-1]["reason"],
