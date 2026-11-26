@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.scorecard import (  # noqa: E402
     score_runnability, score_coverage, score_autobuild, score_oracle,
-    score_demo, aggregate, build_scorecard,
+    score_demo, score_generalization, aggregate, build_scorecard,
 )
 
 
@@ -58,14 +58,31 @@ def main():
     assert score_demo(False).score == 0.0
     print("    ✓ demo 三源打通为布尔项(10/0)")
 
-    # 加权汇总:全满分→综合 10
+    # 跨系统泛化:锚点 3 个真实异构系统。全通计全权、半通计半权、空=0(不假装泛化)。
+    assert score_generalization([]).score == 0.0
+    # 3 个全自驱 = 满分
+    assert score_generalization(
+        [{"id": "a", "self_driven": True}, {"id": "b", "self_driven": True},
+         {"id": "c", "self_driven": True}]).score == 10.0
+    # 1 全通 + 1 半通 = 1.5/3 有效 → 5.0
+    g = score_generalization([{"id": "a", "self_driven": True}, {"id": "b", "partial": True}])
+    assert abs(g.score - 5.0) < 0.05, g.score
+    assert g.facts["effective_systems"] == 1.5 and g.facts["systems_full"] == 1
+    # self_driven 同时标 partial:只按全权计一次,不重复计半权
+    g2 = score_generalization([{"id": "a", "self_driven": True, "partial": True}])
+    assert g2.facts["systems_partial"] == 0 and abs(g2.score - 10.0 / 3) < 0.05, g2.facts
+    print("    ✓ 跨系统泛化:全通全权+半通半权,3 个真实异构系统为满分锚点,空=0")
+
+    # 加权汇总:全满分→综合 10(含泛化维需给满 3 个自驱系统)
     perfect = build_scorecard(
         tests_total=200, tests_passed=200, coverage_pct=85,
         cases_total=142, ready_true=142, zero_route=142,
         cases_with_oracle=142, diff_mode=True, three_source_ok=True,
+        systems=[{"id": "a", "self_driven": True}, {"id": "b", "self_driven": True},
+                 {"id": "c", "self_driven": True}],
     )
     assert perfect["overall"] == 10.0, perfect["overall"]
-    assert len(perfect["dimensions"]) == 5
+    assert len(perfect["dimensions"]) == 6
     print("    ✓ 全维满分 → 综合 10.0")
 
     # 复现当前基线(7.5 档附近):半自动、覆盖中等

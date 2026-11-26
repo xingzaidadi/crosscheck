@@ -109,6 +109,37 @@ def score_oracle(cases_with_oracle: int, cases_total: int, diff_mode: bool = Fal
     )
 
 
+def score_generalization(systems: list[dict[str, Any]], anchor: int = 3) -> DimensionScore:
+    """跨系统泛化(用户初衷:工具要能在别的系统上也自驱做 UI 自动化,不是只过一张固定考卷)。
+
+    输入是每个"真实异构系统"的机器判定事实(采集脏活在 scripts 层,这里不认任何业务):
+      - self_driven=True : 管线在该系统的真实流量上既自动发现了接口目录(catalog),
+                           又建出了就绪模型(readiness)——真正自驱跑通,全权计 1。
+      - partial=True     : 只到了接口发现这一步(catalog 可从真实流量机器抽出),
+                           但还没建 readiness——半权计 0.5(诚实反映只走了一半,不是 0 也不冒充跑通)。
+    有效系统数 = Σ(self_driven) + 0.5·Σ(partial 且非 self_driven);以 anchor 个不同真实
+    异构系统为满分锚点(证明不是对单一系统过拟合)。无任何系统=0,避免"单系统假泛化"。
+    """
+    full = sum(1 for s in systems if s.get("self_driven"))
+    partial = sum(1 for s in systems if s.get("partial") and not s.get("self_driven"))
+    effective = full + 0.5 * partial
+    rate = (effective / anchor) if anchor else 0.0
+    score = _clamp(rate * 10.0)
+    ids_full = [s.get("id") for s in systems if s.get("self_driven")]
+    ids_part = [s.get("id") for s in systems if s.get("partial") and not s.get("self_driven")]
+    return DimensionScore(
+        name="generalization",
+        score=_round1(score),
+        weight=0.1,
+        basis=(f"自驱跑通 {full} 个 + 半通 {partial} 个 = 有效 {effective:g}/{anchor} 个真实异构系统"
+               f"(满分锚点 {anchor} 个){'；全通: ' + ','.join(str(x) for x in ids_full) if ids_full else ''}"
+               f"{'；半通: ' + ','.join(str(x) for x in ids_part) if ids_part else ''}"),
+        facts={"systems_full": full, "systems_partial": partial,
+               "effective_systems": round(effective, 1), "anchor": anchor,
+               "ids_full": ids_full, "ids_partial": ids_part},
+    )
+
+
 def score_demo(three_source_ok: bool) -> DimensionScore:
     """端到端三源打通:demo 是否 UI+API+DB 三边一致且 residue=0。布尔项。"""
     return DimensionScore(
@@ -144,6 +175,8 @@ def build_scorecard(
     cases_partial: int = 0,
     three_source_ok: bool = False,
     oracle_total: int | None = None,
+    systems: list[dict[str, Any]] | None = None,
+    generalization_anchor: int = 3,
 ) -> dict[str, Any]:
     """从采集好的事实产出完整计分卡(确定性、可单测、可复算)。
 
@@ -151,6 +184,8 @@ def build_scorecard(
     oracle_total  : oracle 维的分母——被评估套件的用例总数;缺省退回 cases_total。
     两维分母必须各用各的语料,不可混用(否则分子来自语料甲、分母来自语料乙,
     autobuild 会被一张固定考卷的规模绑架,量不出跨语料/跨系统的真实建模率)。
+    systems       : 跨系统泛化维的事实——每个真实异构系统一条 {id, self_driven, partial};
+                    缺省空列表(=0 分,不假装泛化)。
     """
     o_total = oracle_total if oracle_total is not None else cases_total
     dims = [
@@ -159,5 +194,6 @@ def build_scorecard(
         score_autobuild(cases_total, ready_true, zero_route),
         score_oracle(cases_with_oracle, o_total, diff_mode, cases_partial),
         score_demo(three_source_ok),
+        score_generalization(systems or [], anchor=generalization_anchor),
     ]
     return aggregate(dims)
