@@ -105,6 +105,8 @@ def main() -> int:
     agent_test.add_argument("--write-scope")
     agent_test.add_argument("--run-id")
     agent_test.add_argument("--max-steps", type=int, default=20)
+    agent_test.add_argument("--scenarios", action="store_true",
+                            help="场景执行闭环:逐条只读执行主流程/异常/边界场景并分别报告(写场景不自动执行)")
     agent_test.add_argument("--headed", action="store_true")
     agent_test.add_argument("--save-regression", action="store_true", help="保存成功轨迹供后续回归")
     agent_test.add_argument("--no-persist", action="store_true", help=argparse.SUPPRESS)
@@ -121,6 +123,8 @@ def main() -> int:
     test.add_argument("--workspace", default="workspace")
     test.add_argument("--headed", action="store_true")
     test.add_argument("--max-steps", type=int, default=30)
+    test.add_argument("--scenarios", action="store_true",
+                      help="场景执行闭环:逐条只读执行主流程/异常/边界场景并分别报告(写场景不自动执行)")
     test.add_argument("--session")
     test.add_argument("--role", default="default")
     test.add_argument("--risk-policy", choices=("read_only", "authorized_write"), default="read_only")
@@ -414,7 +418,7 @@ def main() -> int:
             return 0
         return _run("scripts/agent_test.py", _forward(args, ["url", "instruction", "workspace", "role",
                                                                 "session", "risk_policy", "allow_write", "write_scope",
-                                                                "run_id", "max_steps", "headed", "save_regression", "no_persist",
+                                                                "run_id", "max_steps", "scenarios", "headed", "save_regression", "no_persist",
                                                                 "no_session_refresh", "interactive_login"])
                      + sum((["--answer", answer] for answer in args.answer or []), []))
     if args.command == "test":
@@ -468,6 +472,7 @@ def main() -> int:
                     + (["--allow-write"] if args.allow_write else [])
                     + (["--headed"] if args.headed else [])
                     + (["--save-regression"] if args.save_regression else [])
+                    + (["--scenarios"] if getattr(args, "scenarios", False) else [])
                     + (["--no-persist"] if args.no_persist else [])
                     + (["--no-session-refresh"] if args.no_session_refresh else []))
     if args.command == "maturity-acceptance":
