@@ -320,6 +320,28 @@ def apply_scenario_mutation(sid: str, actions: list[dict]) -> tuple[list[dict], 
     return mutated, None
 
 
+def scenario_field_oracles(sid: str, actions: list[dict]) -> list[dict[str, Any]]:
+    """缺陷4:从场景的结构化动作派生**字段级业务后置断言**(而非只"页面没坏")。
+
+    零业务:字段标签直接取自用户指令解析出的查询输入动作(label),不猜任何业务字段名。
+      - empty_query  : 每个有 label 的查询输入 → field_value_equals expected=""
+        (断言该字段**确实被清空**,取不到值由 runtime 判 INCONCLUSIVE,不假通过)。
+    其余场景暂不派生字段级断言(not_found 的硬信号是 count=0;reset_filter 的"恢复默认"
+    无通用可读基准,强判会假通过,故只保留 page_health+filter_controls 的查询区可用断言)。
+    """
+    oracles: list[dict[str, Any]] = []
+    if sid == "empty_query":
+        for item in actions or []:
+            label = str(item.get("label") or "").strip()
+            if _is_query_input(item) and label:
+                oracles.append({
+                    "kind": "field_value_equals", "value": label, "expected": "",
+                    "source": f"scenario:empty_query 字段『{label}』清空后其值应为空",
+                    "fields": [],
+                })
+    return oracles
+
+
 def scenario_execution_drafts(request: Any) -> list[dict[str, Any]]:
     """把场景建议接成"执行闭环草稿":逐条场景 → 可执行 plan 草稿(draft 态,**不自动跑**)。
 
@@ -368,6 +390,13 @@ def scenario_execution_drafts(request: Any) -> list[dict[str, Any]]:
         # 真实执行(见 scenario_runner.run_scenarios)。
         oracles = list(base_oracles)
         for extra in _SCENARIO_ORACLES.get(sid, []):
+            if not any(o.get("kind") == extra.get("kind")
+                       and str(o.get("value")) == str(extra.get("value"))
+                       for o in oracles):
+                oracles.append(dict(extra))
+        # 缺陷4:再并入从本场景动作派生的**字段级业务后置断言**(如 empty_query 的
+        # 字段确被清空),让断言从"页面没坏"升级到"业务预期达成"。
+        for extra in scenario_field_oracles(sid, actions):
             if not any(o.get("kind") == extra.get("kind")
                        and str(o.get("value")) == str(extra.get("value"))
                        for o in oracles):
