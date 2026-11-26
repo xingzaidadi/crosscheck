@@ -89,6 +89,18 @@ def enforce_write_scope(stage: str, artifact: dict[str, Any]) -> list[str]:
     return [f"越界写入产物键: {key}(本段仅允许 {sorted(allowed)})" for key in violations]
 
 
+def enforce_write_scope_for(allowed: set[str], artifact: dict[str, Any]) -> list[str]:
+    """门禁(显式白名单版):供旁路子 Agent(如 CP-1' 语义 checker 写 spec_review)复用。
+
+    与 enforce_write_scope 同口径,但白名单由调用方给——这样 checker 的白名单可切到
+    {spec_review},写 exec_spec 即越界,与 maker 物理隔离、互不改对方产物。
+    """
+    if not isinstance(artifact, dict):
+        return ["产物不是对象"]
+    violations = [key for key in artifact if key not in allowed]
+    return [f"越界写入产物键: {key}(仅允许 {sorted(allowed)})" for key in violations]
+
+
 def run_stage(agent: StageAgent, context: StageContext) -> StageRun:
     """
     跑一段:子 Agent 产出 -> 写作用域门禁 -> 契约校验。

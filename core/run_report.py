@@ -145,8 +145,73 @@ def ui_layer(ui) -> dict:
             "cols": cols, "rows": rows}
 
 
+def _evidence_tokens(ev: dict) -> list[str]:
+    """把一条 evidence 结构里所有具名证据路径摊平成字符串列表,供"必备证据是否到位"比对。"""
+    if not isinstance(ev, dict):
+        return []
+    tokens: list[str] = []
+    for key in ("screenshots", "data"):
+        tokens.extend(str(item) for item in (ev.get(key) or []))
+    for key in ("video", "html"):
+        value = ev.get(key)
+        if value:
+            tokens.append(str(value))
+    return tokens
+
+
+def _missing_evidence(report: dict, run_dir: Path) -> list[str]:
+    """返回该用例缺失的证据(供 summary.json 的 evidence_errors)。
+
+    两类缺失都算:
+      1. required_evidence 声明的必备证据,在 evidence 里完全没有对应条目;
+      2. evidence 里引用了具体文件路径,但该文件在 run_dir 下不存在。
+    """
+    report = report or {}
+    ev = report.get("evidence") or {}
+    missing: list[str] = []
+    tokens = _evidence_tokens(ev)
+    explicit = [str(item) for item in (ev.get("missing") or [])]
+    for required in report.get("required_evidence") or []:
+        name = str(required)
+        if not any(name in token for token in tokens):
+            missing.append(name)
+
+    root = run_dir.resolve()
+
+    def _check(value) -> None:
+        if not value:
+            return
+        candidate = Path(str(value))
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        try:
+            resolved = candidate.resolve()
+            resolved.relative_to(root)
+        except (OSError, ValueError):
+            missing.append(str(value))
+            return
+        if not resolved.is_file():
+            missing.append(str(value))
+
+    for token in tokens:
+        _check(token)
+    for item in explicit:
+        if item not in missing:
+            missing.append(item)
+    # 去重保序
+    return list(dict.fromkeys(missing))
+
+
 def render(run_id: str, results: list[CaseResult], run_dir: Path, *,
            write_summary: bool = True) -> Path:
+    # 必备证据未到位:PASS 自动降级 PARTIAL(证据不足不得算通过)。
+    evidence_errors: dict[str, list[str]] = {}
+    for r in results:
+        miss = _missing_evidence(r.report or {}, run_dir)
+        if miss:
+            evidence_errors[r.case_id] = miss
+            if r.verdict is Verdict.PASS:
+                r.verdict = Verdict.PARTIAL
     cards = []
     for r in results:
         rep = r.report or {}
@@ -239,6 +304,7 @@ table.dt th{{background:#f0f3f6}}
     if write_summary:
         (run_dir / "summary.json").write_text(json.dumps({
         "run_id": run_id, "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "evidence_errors": evidence_errors,
         "total": n, "pass": npass, "fail": nfail, "skip": nskip,
         "partial": npartial, "blocked": nblocked, "invalid_spec": ninvalid,
         "env_error": nenv, "cleanup_failed": ncleanup,

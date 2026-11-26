@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from core.ui_agent.risk_policy import WRITE_TERMS
-from core.ui_agent.semantic import equivalent
+from core.ui_agent.semantic import equivalent, normalize
 from core.ui_agent.provider import SAFE_PROVIDER_ACTIONS, invoke_planner, normalize_proposal
 
 
@@ -15,6 +15,10 @@ STOP_WORDS = {
     "确认", "验证", "检查", "显示", "详情", "第一条", "一条", "click", "open", "view",
 }
 NAV_ROLES = {"button", "link", "tab", "menuitem", "treeitem"}
+
+# 确定性网关置信度低于此阈值视为"弱匹配"(只有巧合性词重合,无别名/子串命中,
+# 对应 _gateway_for 打分 <~45):此时先问一次可选 provider,它没注册才回退弱网关。
+WEAK_GATEWAY_CONFIDENCE = 0.6
 
 
 def _tokens(value: str) -> list[str]:
@@ -92,6 +96,13 @@ def _is_detail_goal(action: dict[str, Any]) -> bool:
     return any(term in value for term in ("详情页", "详情页面", "进入详情", "查看详情", "open_first_record"))
 
 
+def _norm_goal(action: dict[str, Any]) -> str:
+    """导航目标的稳定指纹:动词 + 目标文字,用于标记/查"该导航已被语义解析过"。"""
+    kind = str(action.get("action") or "")
+    target = str(action.get("text") or action.get("label") or action.get("target") or "")
+    return f"{kind}:{normalize(target)}"
+
+
 @dataclass
 class PlannerState:
     pending_actions: list[dict[str, Any]]
@@ -100,6 +111,9 @@ class PlannerState:
     stagnant_rounds: int = 0
     last_fingerprint: str = ""
     seen_fingerprints: set[str] = field(default_factory=set)
+    # 已被"有把握的语义网关"(provider/强确定性)解析过的导航目标指纹:若随后仍找不到
+    # 更具体的目标控件而 blocked,说明网关本身就是目的地,该导航目标可退伍(不误判 BLOCKED)。
+    resolved_navigations: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -109,6 +123,8 @@ class PlannerDecision:
     reason: str
     confidence: float
     desired_action: dict[str, Any] | None = None
+    candidates: list[dict[str, Any]] = field(default_factory=list)
+    source: str = ""  # "provider"=可选插件/LLM 解析;空=确定性层
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -154,13 +170,23 @@ class ObservationPlanner:
             desired = self.state.pending_actions[0]
             if desired.get("action") == "reach" and action_visible(desired, observation):
                 target = str(desired.get("target") or "")
-                if target in str(observation.get("body_text") or ""):
+                # 铁律『不假通过』——审计 #2a:菜单名出现在 body_text ≠ 已到达目标页。
+                # 旧逻辑 `target in body_text` 就只发 observe(不点击),把"看见菜单名"误当
+                # "已经到了"。到达必须有真导航证据:① 该导航目标此前已被有把握地点击解析过
+                # (resolved_navigations,=发生过真实点击/页面转移)且目标现于当前页出现 → 才
+                # 发 observe 核验到达;② 否则只要目标对应一个可见的导航控件就点它(真导航)。
+                # 既没导航证据、又无可点控件(只是正文里有这串字)→ 不在此短路成"到达",
+                # 落到下方网关/provider 语义探索,退伍只在确有导航证据时发生。
+                if _norm_goal(desired) in self.state.resolved_navigations \
+                        and target in str(observation.get("body_text") or ""):
                     return PlannerDecision("execute", {"action": "observe", "target": target},
-                                           "requested goal is observable on the current page", .95,
+                                           "navigation completed; verifying arrival on the target page", .95,
                                            desired_action=desired)
-                return PlannerDecision("execute", {"action": "click", "text": target},
-                                       "requested goal is a visible control", .9,
-                                       desired_action=desired)
+                if any(_score_control(item, target, target) >= 70
+                       for item in observation.get("controls") or []):
+                    return PlannerDecision("execute", {"action": "click", "text": target},
+                                           "requested goal is a visible navigation control", .9,
+                                           desired_action=desired)
             if desired.get("action") == "search_value" and observation.get("fields"):
                 field = next((item for item in observation.get("fields") or []
                               if not item.get("disabled") and not item.get("readonly")), None)
@@ -173,22 +199,30 @@ class ObservationPlanner:
                         "using the first editable query field for the requested value", .78,
                         desired_action=desired,
                     )
-            if action_visible(desired, observation):
+            if action_visible(desired, observation) and desired.get("action") != "reach":
+                candidates = self._rank_candidates(desired, observation)
                 if desired.get("action") == "click" and str(desired.get("text") or "") in {"详情", "查看详情", "明细"}:
                     return PlannerDecision("execute", desired, "detail navigation control is visible", .95,
-                                           desired_action=desired)
-                return PlannerDecision("execute", desired, "desired action is visible in current observation", .95,
-                                       desired_action=desired)
+                                           desired_action=desired, candidates=candidates)
+                resolved_action = self._resolve_click_target(desired, candidates)
+                return PlannerDecision("execute", resolved_action,
+                                       "desired action is visible in current observation", .95,
+                                       desired_action=desired, candidates=candidates)
             gateway = self._gateway_for(desired, observation)
+            # Provider 通电:确定性网关**弱匹配**(只有巧合性词重合、无别名/子串命中)时,
+            # 先问一次可选 provider(默认未注册→None→仍走确定性网关)。强匹配不浪费调用。
+            # 这样"刁钻措辞"(用例'客户资料'、控件'会员档案',无共享 token)才真能靠 LLM 桥接。
+            if not gateway or gateway["confidence"] < WEAK_GATEWAY_CONFIDENCE:
+                resolved = self._resolve_with_provider(desired, observation)
+                if resolved:
+                    return resolved
             if gateway:
                 return PlannerDecision(
                     "explore", {"action": "click", "text": gateway["name"], "exploration": True},
                     "target is hidden; opening the best safe semantic gateway", gateway["confidence"],
                     desired_action=desired,
+                    candidates=self._rank_candidates(desired, observation),
                 )
-            resolved = self._resolve_with_provider(desired, observation)
-            if resolved:
-                return resolved
             if desired.get("action") == "open_first_record":
                 fallback = self._instruction_gateway(observation)
                 if fallback:
@@ -228,6 +262,7 @@ class ObservationPlanner:
             "explore", action,
             str(proposal.get("reason") or "semantic planner selected a safe observable action"),
             float(proposal.get("confidence") or .65), desired_action=desired,
+            source="provider",
         )
 
     def _provider_action_is_safe(self, action: dict[str, Any], observation: dict[str, Any]) -> bool:
@@ -270,6 +305,14 @@ class ObservationPlanner:
                 term in gateway_text for term in ("详情", "记录", "明细", "detail", "record")
             ) and self.state.pending_actions:
                 self.state.completed_actions.append(self.state.pending_actions.pop(0))
+                return
+            # 记下该网关是**有把握的语义解析**(provider 认定 / 强确定性命中),供随后
+            # mark_blocked 判定"导航已成功、目标可退伍"。不在这里立即退伍:网关可能只是
+            # 中转站,真正的目标控件要到下一页才出现(那时应真点它,而非提前算完成)。
+            if desired.get("action") in {"click", "reach"} and (
+                decision.source == "provider" or decision.confidence >= WEAK_GATEWAY_CONFIDENCE
+            ):
+                self.state.resolved_navigations.add(_norm_goal(desired))
             return
         desired = decision.desired_action
         if desired and self.state.pending_actions and desired == self.state.pending_actions[0]:
@@ -283,13 +326,57 @@ class ObservationPlanner:
         goal as completed avoids repeatedly blocking on a textual target.
         """
         desired = decision.desired_action or {}
-        if desired.get("action") == "reach":
-            target = str(desired.get("target") or "")
-            if target and target in str(observation.get("body_text") or ""):
-                if self.state.pending_actions and desired == self.state.pending_actions[0]:
-                    self.state.completed_actions.append(self.state.pending_actions.pop(0))
-                    return True
+        # 审计 #2a 曾在此处第二次假通过:reach 目标只要字面出现在 body_text 就退伍放行,
+        # 把"看见菜单名"误当"已到达"。已删除该正文短路——退伍只认下方"有把握的语义网关
+        # 真点开过"(resolved_navigations)这一真导航证据,不凭正文里出现菜单名冒充到达。
+        # 该导航目标此前被"有把握的语义网关"(provider/强确定性)解析并点开过,如今却仍
+        # 找不到更具体的目标控件而 blocked:说明网关本身就是目的地(用例措辞≠落地页标题,
+        # 如用例"客户资料"落在"会员档案"页),导航其实已成功,退伍放行而非误判 BLOCKED。
+        if desired.get("action") in {"click", "reach"} \
+                and _norm_goal(desired) in self.state.resolved_navigations \
+                and self.state.pending_actions and desired == self.state.pending_actions[0]:
+            self.state.completed_actions.append(self.state.pending_actions.pop(0))
+            return True
         return False
+
+    def _resolve_click_target(self, desired: dict[str, Any],
+                              candidates: list[dict[str, Any]]) -> dict[str, Any]:
+        """把 click 动作的目标文字改写为实际命中的同义控件名。
+
+        ``action_visible`` 可能因**同义词**(用例"检索"、控件"查询")判定目标可见,
+        但原动作仍写着用例原词;若不改写,runtime 会拿原词去点、找不到控件。这里
+        在确定性候选里取最高分(且安全)的控件名回填,让同义目标真能点中。非 click
+        动作或已精确同名时原样返回。"""
+        if str(desired.get("action") or "") != "click":
+            return dict(desired)
+        original = str(desired.get("text") or "")
+        best = next((item for item in candidates
+                     if item.get("score", 0) >= 70 and not item.get("dangerous")
+                     and not item.get("attempted")), None)
+        if best and best["name"] != original:
+            action = dict(desired)
+            action["text"] = best["name"]
+            return action
+        return dict(desired)
+
+    def _rank_candidates(self, desired: dict[str, Any], observation: dict[str, Any]) -> list[dict[str, Any]]:
+        """全量候选控件及其确定性打分(供决策复盘落盘,不影响选择逻辑)。"""
+        target = str(desired.get("text") or desired.get("label") or desired.get("name")
+                     or desired.get("target") or "")
+        ranked: list[dict[str, Any]] = []
+        for control in observation.get("controls") or []:
+            name = _control_name(control)
+            if not name:
+                continue
+            score = _score_control(control, target, self.instruction)
+            ranked.append({
+                "name": name,
+                "score": round(float(score), 2),
+                "attempted": name in self.state.attempted_gateways,
+                "dangerous": _is_dangerous(control),
+            })
+        ranked.sort(key=lambda item: item["score"], reverse=True)
+        return ranked[:12]
 
     def _gateway_for(self, desired: dict[str, Any], observation: dict[str, Any]) -> dict[str, Any] | None:
         target = str(desired.get("text") or desired.get("label") or desired.get("name")

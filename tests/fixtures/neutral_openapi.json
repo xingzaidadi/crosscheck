@@ -1,0 +1,50 @@
+{
+  "openapi": "3.0.0",
+  "info": {"title": "neutral-demo", "version": "1.0"},
+  "paths": {
+    "/api/items": {
+      "post": {
+        "operationId": "createItem",
+        "requestBody": {
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateItemReq"}}}
+        },
+        "responses": {"200": {"description": "ok"}}
+      }
+    },
+    "/api/items/search": {
+      "get": {
+        "operationId": "searchItems",
+        "responses": {"200": {"description": "ok"}}
+      }
+    },
+    "/api/orders": {
+      "post": {
+        "operationId": "createOrder",
+        "requestBody": {
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateOrderReq"}}}
+        },
+        "responses": {"200": {"description": "ok"}}
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateItemReq": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title": {"type": "string", "maxLength": 64},
+          "quantity": {"type": "integer", "minimum": 1}
+        }
+      },
+      "CreateOrderReq": {
+        "type": "object",
+        "required": ["itemId"],
+        "properties": {
+          "itemId": {"type": "integer"},
+          "amount": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

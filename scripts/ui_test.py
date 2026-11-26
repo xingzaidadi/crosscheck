@@ -67,15 +67,25 @@ def _evaluate_oracle(page, oracle: dict[str, Any]) -> dict[str, Any]:
         expected = str(oracle.get("expected") or "")
         label_locator = page.get_by_text(label, exact=True).first
         actual = ""
+        located = False  # 是否真正定位到了"目标字段"这个控件/单元格
         if label_locator.count():
             scope = label_locator.locator("xpath=ancestor-or-self::*[self::label or self::td or self::th or self::div][1]")
             if scope.count():
                 control = scope.locator("input, textarea, select").first
                 actual = control.input_value() if control.count() else scope.inner_text().replace(label, "", 1).strip(" ：:\n\t")
-        if not actual:
-            body = page.locator("body").inner_text()
-            actual = expected if expected in body else ""
-        ok = actual == expected or expected in actual
+                located = True
+        # 铁律『不假通过』:取不到目标字段值时判 inconclusive(ok=None),**绝不**退回
+        # 全页正文搜索。旧逻辑 `expected in body 就 actual=expected` 会把"页面别处恰好
+        # 出现 expected 字样"误当成"目标字段等于 expected"——哪怕目标字段其实是别的值,
+        # 或根本没定位到。误通过比没测更危险,故只在真正拿到目标字段值时才比对。
+        if not located or not actual:
+            ok = None
+        else:
+            # 铁律『等值即等值』:field_text_equals 是"等于"语义,必须严格 ==。
+            # 旧逻辑 `or expected in actual` 是子串漏网:actual="100"/expected="10"、
+            # actual="Not approved"/expected="approved" 都会误判通过。子串比较只允许
+            # 出现在显式的 *_contains kind,等值类一律严格相等。
+            ok = actual == expected
     elif oracle["kind"] == "api_status":
         # API status is evaluated by the autonomous runner from captured
         # response metadata; this branch is retained for legacy callers.
@@ -120,16 +130,29 @@ def _evaluate_oracle(page, oracle: dict[str, Any]) -> dict[str, Any]:
         label_locator = page.get_by_text(label, exact=True).first
         scope = label_locator.locator("xpath=ancestor-or-self::*[self::label or self::td or self::th or self::div][1]")
         actual = ""
-        if scope.count():
+        located = False  # 是否真正定位到了目标字段(控件或相邻文本)
+        if label_locator.count() and scope.count():
             control = scope.locator("input, textarea, select").first
             if control.count():
                 actual = control.input_value()
+                located = True
             else:
-                actual = scope.inner_text().replace(label, "", 1).strip(" ：:\n\t")
-        if not actual:
+                text = scope.inner_text().replace(label, "", 1).strip(" ：:\n\t")
+                if text:
+                    actual = text
+                    located = True
+        if not located:
             sibling = label_locator.locator("xpath=following::*[1]")
-            actual = sibling.inner_text().strip() if sibling.count() else ""
-        ok = actual == expected
+            if label_locator.count() and sibling.count():
+                actual = sibling.inner_text().strip()
+                located = True
+        # 铁律『不假通过』:定位不到目标字段控件 → INCONCLUSIVE(ok=None),绝不让
+        # "取不到值(actual='')恰好等于期望空值(expected='')"冒充 PASS。只有真正定位到
+        # 字段时,空值期望才算被客观验证为空。
+        if not located:
+            ok = None
+        else:
+            ok = actual == expected
     elif oracle["kind"] == "enabled":
         locator = page.get_by_text(str(oracle.get("value") or ""), exact=True).first
         control = locator.locator("xpath=ancestor-or-self::*[self::button or self::input or self::select or self::textarea][1]")
@@ -150,11 +173,30 @@ def _evaluate_oracle(page, oracle: dict[str, Any]) -> dict[str, Any]:
         actual = locator.count()
         ok = actual == int(oracle.get("value") or 0)
     elif oracle["kind"] == "filter_controls":
-        selectors = ["input", "select", "button"]
-        actual = {label: any(page.get_by_text(label, exact=True).count() > 0
-                              for _ in [0]) for label in oracle.get("fields") or []}
-        actual["查询"] = actual.get("查询", False) or any(page.locator(selector).count() > 0 for selector in selectors)
-        ok = actual.get("查询", False)
+        # 缺陷4:旧逻辑"全页有任意 input/select/button 就通过"太松——页面坏了但残留
+        # 一个按钮也会 PASS。改为锚定**查询区**:必须找到查询/搜索触发控件(按钮或 role),
+        # 且其所在区域确有可输入控件。定位不到查询区 → INCONCLUSIVE(ok=None),不假通过。
+        trigger = page.get_by_role("button", name=re.compile(r"查询|搜索|筛选|search", re.I)).first
+        if not trigger.count():
+            # 退一步:按可见文本找查询/搜索触发(有些实现不是标准 button role)。
+            trigger = page.get_by_text(re.compile(r"^(查询|搜索|筛选)$"), exact=False).first
+        if not trigger.count():
+            actual = {"query_region": False, "inputs": 0}
+            ok = None  # 连查询触发都没有 → 无法判定查询区是否可用
+        else:
+            region = trigger.locator(
+                "xpath=ancestor-or-self::*[self::form or contains(@class,'search') "
+                "or contains(@class,'filter') or contains(@class,'query')][1]")
+            scope = region if region.count() else page.locator("body")
+            input_count = scope.locator(
+                "input:not([type=hidden]), textarea, select").count()
+            # 指定了具体字段标签时,逐个确认其在查询区可见。
+            field_labels = oracle.get("fields") or []
+            fields_present = {label: scope.get_by_text(str(label), exact=True).count() > 0
+                              for label in field_labels}
+            actual = {"query_region": True, "inputs": input_count, **fields_present}
+            # 查询区存在且至少有一个输入控件(以及指定字段若有则都在)→ PASS。
+            ok = input_count > 0 and all(fields_present.values())
     elif oracle["kind"] == "status_groups":
         body = page.locator("body").inner_text()
         groups = {str(group): tuple(_SEMANTICS.get("status_terms") or [])

@@ -67,6 +67,21 @@ def main():
     assert case_endpoints("C3", "", routes["by_case_id"]["C3"]) == {"/svc/api/order/accept"}
     print("    ✓ 路由优先取 endpoint")
 
+    # dict 载体(load_suite 产物):case_id 在顶层、接口字面量在 actions.source_text。
+    # 历史缺陷:compute_readiness 用 getattr 读 dict → 全空 → 误判 unknown。
+    # 这里断言 dict 用例与等价对象用例判定一致(接口可达→ready;无接口→unknown)。
+    dict_cases = [
+        {"case_id": "D2", "title": "建单",
+         "actions": {"source_text": "调用暂存接口 /svc/api/order/create（携带 key）", "ui": [], "api": []}},
+        {"case_id": "D5", "title": "纯文本",
+         "actions": {"source_text": "打开页面看看，无任何接口", "ui": [], "api": []}},
+    ]
+    ditems = {it.case_id: it for it in compute_readiness(dict_cases, caps)}
+    assert ditems["D2"].case_id == "D2", f"dict 用例 case_id 必须读对, got {ditems['D2'].case_id}"
+    assert ditems["D2"].ready, f"dict 用例接口可达应 ready, got {ditems['D2']}"
+    assert not ditems["D5"].ready and ditems["D5"].blocked_by == [], f"dict 无接口应 unknown, got {ditems['D5']}"
+    print("    ✓ dict 用例(actions.source_text 抽接口)判定与对象一致 → 修复 getattr-on-dict 缺陷")
+
     import tempfile
     d = tempfile.mkdtemp()
     fp = os.path.join(d, "readiness.yaml")

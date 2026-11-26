@@ -1,17 +1,10 @@
 {
-  "business_word_hits": [
-    {
-      "file": "core/ui_test_intake.py",
-      "line": 11,
-      "term": "受理",
-      "text": "WRITE_ACTION = re.compile(r\"(?:点击|选择|执行|调用|进行|填写|修改|确认|操作|批量)?\\s*(提交|保存|删除|新增|新建|上传|导入|审批|驳回|受理|关闭|编辑)\")"
-    }
-  ],
+  "business_word_hits": [],
   "checked": [
     "core business terms",
     "core suite path coupling"
   ],
-  "passed": false,
+  "passed": true,
   "schema_version": 1,
   "suite_path_references": []
 }

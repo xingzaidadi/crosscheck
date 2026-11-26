@@ -105,6 +105,8 @@ def main() -> int:
     agent_test.add_argument("--write-scope")
     agent_test.add_argument("--run-id")
     agent_test.add_argument("--max-steps", type=int, default=20)
+    agent_test.add_argument("--scenarios", action="store_true",
+                            help="场景执行闭环:逐条只读执行主流程/异常/边界场景并分别报告(写场景不自动执行)")
     agent_test.add_argument("--headed", action="store_true")
     agent_test.add_argument("--save-regression", action="store_true", help="保存成功轨迹供后续回归")
     agent_test.add_argument("--no-persist", action="store_true", help=argparse.SUPPRESS)
@@ -121,6 +123,8 @@ def main() -> int:
     test.add_argument("--workspace", default="workspace")
     test.add_argument("--headed", action="store_true")
     test.add_argument("--max-steps", type=int, default=30)
+    test.add_argument("--scenarios", action="store_true",
+                      help="场景执行闭环:逐条只读执行主流程/异常/边界场景并分别报告(写场景不自动执行)")
     test.add_argument("--session")
     test.add_argument("--role", default="default")
     test.add_argument("--risk-policy", choices=("read_only", "authorized_write"), default="read_only")
@@ -314,6 +318,44 @@ def main() -> int:
     release.add_argument("--out")
     release.add_argument("--allow-dirty", action="store_true")
 
+    bootstrap_env = sub.add_parser("bootstrap-env", help="一键装配可复现运行环境(依赖+浏览器+体检)")
+    bootstrap_env.add_argument("--locked", action="store_true")
+    bootstrap_env.add_argument("--skip-browser", action="store_true")
+    bootstrap_env.add_argument("--verify", action="store_true")
+
+    scorecard = sub.add_parser("scorecard", help="机器实测产出工具成熟度计分卡与徽章")
+    scorecard.add_argument("--workspace")
+    scorecard.add_argument("--suite")
+    scorecard.add_argument("--coverage-json")
+    scorecard.add_argument("--demo-workspace")
+    scorecard.add_argument("--run-tests", action="store_true")
+    scorecard.add_argument("--run-demo", action="store_true")
+    scorecard.add_argument("--tests-total", type=int, default=0)
+    scorecard.add_argument("--tests-passed", type=int, default=0)
+    scorecard.add_argument("--output", default="scorecard.json")
+    scorecard.add_argument("--markdown")
+
+    contract = sub.add_parser("contract-ingest", help="从源码/OpenAPI 摄取接口契约并生成 ExecSpec/负例草稿")
+    contract.add_argument("provider")
+    contract.add_argument("source")
+    contract.add_argument("--context", default="")
+    contract.add_argument("--site", default="")
+    contract.add_argument("--workspace", default="workspace")
+    contract.add_argument("--output")
+
+    route_assign = sub.add_parser("route-assign", help="契约端点→用例候选路由(候选态,人审晋级),补 readiness 缺的那一跳")
+    route_assign.add_argument("--contracts", help="已摄取契约 json(contract_ingest 产物)")
+    route_assign.add_argument("--openapi", help="OpenAPI/Swagger 文档(无契约时现摄取)")
+    route_assign.add_argument("--cases", required=True, help="用例文件(xlsx/csv/json/yaml)")
+    route_assign.add_argument("--keywords", help="领域动作词文件(workspace 侧,零业务由你给)")
+    route_assign.add_argument("--site", default="")
+    route_assign.add_argument("--workspace", default="workspace")
+    route_assign.add_argument("--min-score", type=float, default=2.0)
+    route_assign.add_argument("--margin", type=float, default=1.0)
+    route_assign.add_argument("--context-prefix", default="")
+    route_assign.add_argument("--promote", action="append", default=[], help="人审晋级的 case_id(可多次)")
+    route_assign.add_argument("--output")
+
     task = sub.add_parser("task", help="创建、执行和查询持久化测试任务")
     task.add_argument("arguments", nargs=argparse.REMAINDER)
     gate = sub.add_parser("feature-gate", help="评估冻结的功能级 100%% 验收门禁")
@@ -376,7 +418,7 @@ def main() -> int:
             return 0
         return _run("scripts/agent_test.py", _forward(args, ["url", "instruction", "workspace", "role",
                                                                 "session", "risk_policy", "allow_write", "write_scope",
-                                                                "run_id", "max_steps", "headed", "save_regression", "no_persist",
+                                                                "run_id", "max_steps", "scenarios", "headed", "save_regression", "no_persist",
                                                                 "no_session_refresh", "interactive_login"])
                      + sum((["--answer", answer] for answer in args.answer or []), []))
     if args.command == "test":
@@ -430,6 +472,7 @@ def main() -> int:
                     + (["--allow-write"] if args.allow_write else [])
                     + (["--headed"] if args.headed else [])
                     + (["--save-regression"] if args.save_regression else [])
+                    + (["--scenarios"] if getattr(args, "scenarios", False) else [])
                     + (["--no-persist"] if args.no_persist else [])
                     + (["--no-session-refresh"] if args.no_session_refresh else []))
     if args.command == "maturity-acceptance":
@@ -526,6 +569,30 @@ def main() -> int:
         if args.allow_dirty:
             values.append("--allow-dirty")
         return _run("scripts/build_release.py", values)
+    if args.command == "bootstrap-env":
+        values = []
+        if args.locked:
+            values.append("--locked")
+        if args.skip_browser:
+            values.append("--skip-browser")
+        if args.verify:
+            values.append("--verify")
+        return _run("scripts/bootstrap_env.py", values)
+    if args.command == "scorecard":
+        values = _forward(args, ["workspace", "suite", "coverage_json", "demo_workspace",
+                                 "run_tests", "run_demo", "tests_total", "tests_passed",
+                                 "output", "markdown"])
+        return _run("scripts/scorecard.py", values)
+    if args.command == "contract-ingest":
+        values = [args.provider, args.source]
+        values += _forward(args, ["context", "site", "workspace", "output"])
+        return _run("scripts/contract_ingest.py", values)
+    if args.command == "route-assign":
+        values = _forward(args, ["contracts", "openapi", "cases", "keywords", "site",
+                                 "workspace", "min_score", "margin", "context_prefix", "output"])
+        for cid in args.promote:
+            values.extend(["--promote", str(cid)])
+        return _run("scripts/route_assign.py", values)
     if args.command == "task":
         return _run("scripts/task.py", args.arguments)
     if args.command == "feature-gate":

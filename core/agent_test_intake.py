@@ -155,8 +155,27 @@ def _normalize_agent_actions(actions: list[dict], instruction: str) -> list[dict
         r"(?:打开|进入|查看|点击)\s*(?:(?:订单|记录|数据)\s*)?(?:详情|明细)", text,
     ))
     asks_record = asks_first or explicit_detail
+    # 纯导航动词(打开/进入/切换到/跳转)后接的页面名视为"到达目标",改走 reach:
+    # reach 的 action_visible 兼容语义命中(控件分≥70)且自带网关+退伍逻辑,比 click
+    # 更能容忍"用例措辞≠控件名"(如用例'客户资料'、控件'会员档案')而不误判 BLOCKED。
+    # 排除详情/记录类(由上面 record 逻辑处理)与显式"点击/单击/按下"的控件交互。
+    nav_targets = {
+        match.group(1).strip()
+        for match in re.finditer(
+            r"(?:打开|进入|切换到|跳转(?:到|至)?)\s*[‘’“”\"《》【】]?"
+            r"([^，。；;\s‘’“”\"《》【】]{2,40})",
+            text,
+        )
+        if not any(term in match.group(1) for term in ("详情", "明细", "第一条", "首条", "第一行"))
+    }
     normalized: list[dict] = []
     for action in actions:
+        if action.get("action") == "click" and str(action.get("text") or "") in nav_targets:
+            goal = {"action": "reach", "target": str(action.get("text") or "")}
+            if goal not in normalized:
+                normalized.append(goal)
+            continue
+
         if action.get("action") == "open_first_record" and explicit_detail and not asks_first:
             normalized.append({"action": "click", "text": "详情"})
             continue
@@ -226,14 +245,24 @@ def _normalize_execution_order(actions: list[dict]) -> list[dict]:
 def _natural_language_oracles(instruction: str) -> list[dict]:
     oracles: list[dict] = []
     for match in re.finditer(
-        r"(?:字段|状态|结果|文本)?\s*(?:并且?|然后)?\s*(?:确认|验证|检查)?\s*[‘’“\"]?([\u4e00-\u9fffA-Za-z_][\u4e00-\u9fffA-Za-z0-9_-]{1,30})[’‘”\"]?\s*(?:为|是|等于|显示为|应为)\s*[‘’“\"]?([^，。；;’‘”\"]{1,60})",
+        r"(?:字段|状态|结果|文本)?\s*(?:并且?|然后)?\s*(?:确认|验证|检查)?\s*[‘’“\"]?([\u4e00-\u9fffA-Za-z_][\u4e00-\u9fffA-Za-z0-9_-]{1,30})[’‘”\"]?\s*(?:为|是(?!否)|等于|显示为|应为)\s*[‘’“\"]?([^，。；;’‘”\"]{1,60})",
         instruction,
     ):
         field, value = match.groups()
-        if field in {"确认", "页面", "订单", "详情"}:
+        field = field.strip()
+        value = value.strip()
+        span = match.group(0)
+        # 铁律『不假通过』:"是否X""X是否正常"是存活性问句,不是字段断言,抽成
+        # field_text_equals 会凭空造出 `字段=否正常` 之类伪断言并在运行时误判。旧实现
+        # 靠黑名单(确认/页面/订单/详情)根本挡不住——根因是正则把"是否"里的"是"当等号。
+        # 双保险:① 操作符 `是(?!否)` 不吃"是否"的是;② 兜底:匹配跨度含"是否"、字段
+        # 以"是否"收尾、或值以"否"开头(被截断残片)一律丢弃。等号两侧必须都是实词才成断言。
+        if "是否" in span or field.endswith("是否") or value.startswith("否"):
             continue
-        oracles.append({"kind": "field_text_equals", "value": field.strip(),
-                        "expected": value.strip(), "source": match.group(0), "fields": []})
+        if field in {"确认", "页面", "订单", "详情"} or not field or not value:
+            continue
+        oracles.append({"kind": "field_text_equals", "value": field,
+                        "expected": value, "source": span, "fields": []})
     return oracles
 
 

@@ -1,0 +1,1013 @@
+{
+  "suite": "workspace\\suites\\ebuy-demand-full-142-20261115",
+  "cases_total": 142,
+  "det_hit": 6,
+  "llm_hit": 0,
+  "candidates_total": 11,
+  "mode": "A(deterministic)",
+  "cases": [
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC01-2",
+      "case_key": "TC01",
+      "candidates": 4,
+      "high": 0,
+      "source": "det"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC02-3",
+      "case_key": "TC02",
+      "candidates": 2,
+      "high": 0,
+      "source": "det"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC03-4",
+      "case_key": "TC03",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC04-5",
+      "case_key": "TC04",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC05-6",
+      "case_key": "TC05",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC06-7",
+      "case_key": "TC06",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC07-8",
+      "case_key": "TC07",
+      "candidates": 1,
+      "high": 0,
+      "source": "det"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC08-9",
+      "case_key": "TC08",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC09-10",
+      "case_key": "TC09",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC10-11",
+      "case_key": "TC10",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC100-101",
+      "case_key": "TC100",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC101-102",
+      "case_key": "TC101",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC102-103",
+      "case_key": "TC102",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC103-104",
+      "case_key": "TC103",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC104-105",
+      "case_key": "TC104",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC105-106",
+      "case_key": "TC105",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC106-107",
+      "case_key": "TC106",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC107-108",
+      "case_key": "TC107",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC108-109",
+      "case_key": "TC108",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC109-110",
+      "case_key": "TC109",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC11-12",
+      "case_key": "TC11",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC110-111",
+      "case_key": "TC110",
+      "candidates": 1,
+      "high": 0,
+      "source": "det"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC111-112",
+      "case_key": "TC111",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC112-113",
+      "case_key": "TC112",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC113-114",
+      "case_key": "TC113",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC114-115",
+      "case_key": "TC114",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC115-116",
+      "case_key": "TC115",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC116-117",
+      "case_key": "TC116",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC117-118",
+      "case_key": "TC117",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC118-119",
+      "case_key": "TC118",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC119-120",
+      "case_key": "TC119",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC12-13",
+      "case_key": "TC12",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC120-121",
+      "case_key": "TC120",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC121-122",
+      "case_key": "TC121",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC122-123",
+      "case_key": "TC122",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC123-124",
+      "case_key": "TC123",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC124-125",
+      "case_key": "TC124",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC125-126",
+      "case_key": "TC125",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC126-127",
+      "case_key": "TC126",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC127-128",
+      "case_key": "TC127",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC128-129",
+      "case_key": "TC128",
+      "candidates": 2,
+      "high": 0,
+      "source": "det"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC129-130",
+      "case_key": "TC129",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC13-14",
+      "case_key": "TC13",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC130-131",
+      "case_key": "TC130",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC131-132",
+      "case_key": "TC131",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC132-133",
+      "case_key": "TC132",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC133-134",
+      "case_key": "TC133",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC134-135",
+      "case_key": "TC134",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC135-136",
+      "case_key": "TC135",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC136-137",
+      "case_key": "TC136",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC137-138",
+      "case_key": "TC137",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC138-139",
+      "case_key": "TC138",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC139-140",
+      "case_key": "TC139",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC14-15",
+      "case_key": "TC14",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC140-141",
+      "case_key": "TC140",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC141-142",
+      "case_key": "TC141",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC142-143",
+      "case_key": "TC142",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC15-16",
+      "case_key": "TC15",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC16-17",
+      "case_key": "TC16",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC17-18",
+      "case_key": "TC17",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC18-19",
+      "case_key": "TC18",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC19-20",
+      "case_key": "TC19",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC20-21",
+      "case_key": "TC20",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC21-22",
+      "case_key": "TC21",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC22-23",
+      "case_key": "TC22",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC23-24",
+      "case_key": "TC23",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC24-25",
+      "case_key": "TC24",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC25-26",
+      "case_key": "TC25",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC26-27",
+      "case_key": "TC26",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC27-28",
+      "case_key": "TC27",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC28-29",
+      "case_key": "TC28",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC29-30",
+      "case_key": "TC29",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC30-31",
+      "case_key": "TC30",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC31-32",
+      "case_key": "TC31",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC32-33",
+      "case_key": "TC32",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC33-34",
+      "case_key": "TC33",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC34-35",
+      "case_key": "TC34",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC35-36",
+      "case_key": "TC35",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC36-37",
+      "case_key": "TC36",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC37-38",
+      "case_key": "TC37",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC38-39",
+      "case_key": "TC38",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC39-40",
+      "case_key": "TC39",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC40-41",
+      "case_key": "TC40",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC41-42",
+      "case_key": "TC41",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC42-43",
+      "case_key": "TC42",
+      "candidates": 1,
+      "high": 0,
+      "source": "det"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC43-44",
+      "case_key": "TC43",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC44-45",
+      "case_key": "TC44",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC45-46",
+      "case_key": "TC45",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC46-47",
+      "case_key": "TC46",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC47-48",
+      "case_key": "TC47",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC48-49",
+      "case_key": "TC48",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC49-50",
+      "case_key": "TC49",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC50-51",
+      "case_key": "TC50",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC51-52",
+      "case_key": "TC51",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC52-53",
+      "case_key": "TC52",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC53-54",
+      "case_key": "TC53",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC54-55",
+      "case_key": "TC54",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC55-56",
+      "case_key": "TC55",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC56-57",
+      "case_key": "TC56",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC57-58",
+      "case_key": "TC57",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC58-59",
+      "case_key": "TC58",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC59-60",
+      "case_key": "TC59",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC60-61",
+      "case_key": "TC60",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC61-62",
+      "case_key": "TC61",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC62-63",
+      "case_key": "TC62",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC63-64",
+      "case_key": "TC63",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC64-65",
+      "case_key": "TC64",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC65-66",
+      "case_key": "TC65",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC66-67",
+      "case_key": "TC66",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC67-68",
+      "case_key": "TC67",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC68-69",
+      "case_key": "TC68",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC69-70",
+      "case_key": "TC69",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC70-71",
+      "case_key": "TC70",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC71-72",
+      "case_key": "TC71",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC72-73",
+      "case_key": "TC72",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC73-74",
+      "case_key": "TC73",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC74-75",
+      "case_key": "TC74",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC75-76",
+      "case_key": "TC75",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC76-77",
+      "case_key": "TC76",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC77-78",
+      "case_key": "TC77",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC78-79",
+      "case_key": "TC78",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC79-80",
+      "case_key": "TC79",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC80-81",
+      "case_key": "TC80",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC81-82",
+      "case_key": "TC81",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC82-83",
+      "case_key": "TC82",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC83-84",
+      "case_key": "TC83",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC84-85",
+      "case_key": "TC84",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC85-86",
+      "case_key": "TC85",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC86-87",
+      "case_key": "TC86",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC87-88",
+      "case_key": "TC87",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC88-89",
+      "case_key": "TC88",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC89-90",
+      "case_key": "TC89",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC90-91",
+      "case_key": "TC90",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC91-92",
+      "case_key": "TC91",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC92-93",
+      "case_key": "TC92",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC93-94",
+      "case_key": "TC93",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC94-95",
+      "case_key": "TC94",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC95-96",
+      "case_key": "TC95",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC96-97",
+      "case_key": "TC96",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC97-98",
+      "case_key": "TC97",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC98-99",
+      "case_key": "TC98",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    },
+    {
+      "case_id": "ebuy-demand-full-142-20261115/TC99-100",
+      "case_key": "TC99",
+      "candidates": 0,
+      "high": 0,
+      "source": "none"
+    }
+  ],
+  "promoted": [
+    "ebuy-demand-full-142-20261115/TC01-2",
+    "ebuy-demand-full-142-20261115/TC02-3",
+    "ebuy-demand-full-142-20261115/TC07-8",
+    "ebuy-demand-full-142-20261115/TC110-111",
+    "ebuy-demand-full-142-20261115/TC128-129",
+    "ebuy-demand-full-142-20261115/TC42-43"
+  ],
+  "det_rate": 0.0423
+}

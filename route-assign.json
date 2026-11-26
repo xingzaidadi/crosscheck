@@ -1,0 +1,958 @@
+_meta:
+  generator: route_assign
+  margin: 1.0
+  min_score: 2.0
+  note: 机器候选;未经人审不得晋级;不污染 case_routes.yaml
+by_case_id:
+  TC08:
+    _candidate:
+      endpoint: POST /demand/api/x5/bpm/approve
+      marker: contract
+      score: 5.8
+      signals:
+      - path_seg:approve
+      - path_seg:bpm
+      - method_name:approve
+      - dto:approve
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: ApproveEventRequest
+        marker: contract
+        required: []
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          assignee: ''
+          businessKey: ''
+          comment: ''
+          currentDate: ''
+          delegationUser: ''
+          formData: ''
+          modelCode: ''
+          operator: ''
+          ssfStepId: ''
+          status: ''
+          targetTaskDefinitionKey: ''
+          taskDefinitionKey: ''
+          taskId: ''
+          taskName: ''
+          variables: ''
+        method: POST
+        url: /demand/api/x5/bpm/approve
+      table: <落库表>
+  TC09:
+    _candidate:
+      endpoint: POST /demand/api/x5/bpm/approve
+      marker: contract
+      score: 5.8
+      signals:
+      - path_seg:approve
+      - path_seg:bpm
+      - method_name:approve
+      - dto:approve
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: ApproveEventRequest
+        marker: contract
+        required: []
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          assignee: ''
+          businessKey: ''
+          comment: ''
+          currentDate: ''
+          delegationUser: ''
+          formData: ''
+          modelCode: ''
+          operator: ''
+          ssfStepId: ''
+          status: ''
+          targetTaskDefinitionKey: ''
+          taskDefinitionKey: ''
+          taskId: ''
+          taskName: ''
+          variables: ''
+        method: POST
+        url: /demand/api/x5/bpm/approve
+      table: <落库表>
+  TC101:
+    _candidate:
+      endpoint: POST /demand/api/demand/item/close
+      marker: contract
+      score: 8.4
+      signals:
+      - path_seg:close
+      - path_seg:item
+      - method_name:close
+      - method_name:item
+      - dto:close
+      - dto:demand
+      - dto:item
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: DemandItemCloseRequest
+        marker: contract
+        required:
+        - demandRequestCode
+        - itemId
+        - version
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          demandRequestCode: <必填·待填>
+          itemId: <必填·待填>
+          version: '{{ver}}'
+        method: POST
+        url: /demand/api/demand/item/close
+      table: <落库表>
+  TC102:
+    _candidate:
+      endpoint: POST /demand/api/demand/close
+      marker: contract
+      score: 5.8
+      signals:
+      - path_seg:close
+      - path_seg:demand
+      - method_name:close
+      - dto:demand
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: DemandOperateRequest
+        marker: contract
+        required:
+        - demandRequestCode
+        - version
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          demandRequestCode: <必填·待填>
+          remark: ''
+          version: '{{ver}}'
+        method: POST
+        url: /demand/api/demand/close
+      table: <落库表>
+  TC106:
+    _candidate:
+      endpoint: POST /demand/api/demand/item/template/data/save
+      marker: contract
+      score: 7.4
+      signals:
+      - path_seg:data
+      - path_seg:save
+      - method_name:save
+      - dto:data
+      - dto:save
+      - dto:template
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: SaveTemplateDataRequest
+        marker: contract
+        required:
+        - demandRequestCode
+        - requestItemId
+        - templateId
+        - dataValue
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          dataValue: <必填·待填>
+          demandRequestCode: <必填·待填>
+          requestItemId: <必填·待填>
+          templateDataId: 0
+          templateId: <必填·待填>
+        method: POST
+        url: /demand/api/demand/item/template/data/save
+      table: <落库表>
+  TC111:
+    _candidate:
+      endpoint: POST /demand/api/common/batchGetFdsPreSignedUrl
+      marker: contract
+      score: 6.0
+      signals:
+      - path_seg:fds
+      - path_seg:url
+      - method_name:fds
+      - method_name:url
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: String
+        marker: contract
+        required: []
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body: {}
+        method: POST
+        url: /demand/api/common/batchGetFdsPreSignedUrl
+      table: <落库表>
+  TC125:
+    _candidate:
+      endpoint: POST /demand/api/common/batchGetFdsPreSignedUrl
+      marker: contract
+      score: 17.0
+      signals:
+      - path_seg:batch
+      - path_seg:common
+      - path_seg:fds
+      - path_seg:pre
+      - path_seg:signed
+      - path_seg:url
+      - method_name:batch
+      - method_name:fds
+      - method_name:pre
+      - method_name:signed
+      - method_name:url
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: String
+        marker: contract
+        required: []
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body: {}
+        method: POST
+        url: /demand/api/common/batchGetFdsPreSignedUrl
+      table: <落库表>
+  TC136:
+    _candidate:
+      endpoint: POST /demand/api/homepage/demand/todo/order
+      marker: contract
+      score: 3.8
+      signals:
+      - path_seg:order
+      - method_name:order
+      - dto:order
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: OrderTodoPageQueryRequest
+        marker: contract
+        required:
+        - pageNum
+        - pageSize
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          pageNum: <必填·待填>
+          pageSize: <必填·待填>
+          purchasingOrgCode: ''
+        method: POST
+        url: /demand/api/homepage/demand/todo/order
+      table: <落库表>
+  TC141:
+    _candidate:
+      endpoint: POST /demand/api/homepage/demand/todo/order
+      marker: contract
+      score: 3.8
+      signals:
+      - path_seg:order
+      - method_name:order
+      - dto:order
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: OrderTodoPageQueryRequest
+        marker: contract
+        required:
+        - pageNum
+        - pageSize
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          pageNum: <必填·待填>
+          pageSize: <必填·待填>
+          purchasingOrgCode: ''
+        method: POST
+        url: /demand/api/homepage/demand/todo/order
+      table: <落库表>
+  TC25:
+    _candidate:
+      endpoint: POST /demand/api/x5/bpm/approve
+      marker: contract
+      score: 5.8
+      signals:
+      - path_seg:approve
+      - path_seg:bpm
+      - method_name:approve
+      - dto:approve
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: ApproveEventRequest
+        marker: contract
+        required: []
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          assignee: ''
+          businessKey: ''
+          comment: ''
+          currentDate: ''
+          delegationUser: ''
+          formData: ''
+          modelCode: ''
+          operator: ''
+          ssfStepId: ''
+          status: ''
+          targetTaskDefinitionKey: ''
+          taskDefinitionKey: ''
+          taskId: ''
+          taskName: ''
+          variables: ''
+        method: POST
+        url: /demand/api/x5/bpm/approve
+      table: <落库表>
+  TC26:
+    _candidate:
+      endpoint: POST /demand/api/x5/bpm/approve
+      marker: contract
+      score: 5.8
+      signals:
+      - path_seg:approve
+      - path_seg:bpm
+      - method_name:approve
+      - dto:approve
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: ApproveEventRequest
+        marker: contract
+        required: []
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          assignee: ''
+          businessKey: ''
+          comment: ''
+          currentDate: ''
+          delegationUser: ''
+          formData: ''
+          modelCode: ''
+          operator: ''
+          ssfStepId: ''
+          status: ''
+          targetTaskDefinitionKey: ''
+          taskDefinitionKey: ''
+          taskId: ''
+          taskName: ''
+          variables: ''
+        method: POST
+        url: /demand/api/x5/bpm/approve
+      table: <落库表>
+  TC27:
+    _candidate:
+      endpoint: POST /demand/api/x5/bpm/approve
+      marker: contract
+      score: 5.8
+      signals:
+      - path_seg:approve
+      - path_seg:bpm
+      - method_name:approve
+      - dto:approve
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: ApproveEventRequest
+        marker: contract
+        required: []
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          assignee: ''
+          businessKey: ''
+          comment: ''
+          currentDate: ''
+          delegationUser: ''
+          formData: ''
+          modelCode: ''
+          operator: ''
+          ssfStepId: ''
+          status: ''
+          targetTaskDefinitionKey: ''
+          taskDefinitionKey: ''
+          taskId: ''
+          taskName: ''
+          variables: ''
+        method: POST
+        url: /demand/api/x5/bpm/approve
+      table: <落库表>
+  TC28:
+    _candidate:
+      endpoint: POST /demand/api/demand/draft
+      marker: contract
+      score: 3.0
+      signals:
+      - path_seg:draft
+      - method_name:draft
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: SaveDemandRequest
+        marker: contract
+        required: []
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          applicantUserId: ''
+          applicantUserName: ''
+          applicantUserNo: ''
+          attachmentList: []
+          bearDepartmentCode: ''
+          bearDepartmentName: ''
+          budgetApplyLineTitle: ''
+          budgetApplyNo: ''
+          companyCode: ''
+          companyName: ''
+          contractName: ''
+          contractNo: ''
+          costCenterCode: ''
+          costCenterName: ''
+          countryCode: ''
+          countryName: ''
+          currencyCode: ''
+          currencyName: ''
+          currencySymbol: ''
+          deliveryTime: 0
+          deliveryTimezone: ''
+          demandDesc: ''
+          demandRequestCode: ''
+          demanderUserId: ''
+          demanderUserName: ''
+          demanderUserNo: ''
+          departmentCode: ''
+          departmentName: ''
+          dynamicFieldsConfig: ''
+          expenseItemCode: ''
+          expenseItemName: ''
+          extendInfo: ''
+          id: 0
+          itemList: []
+          lineNo: 0
+          materialCode: ''
+          materialDesc: ''
+          purchasingCategoryCode: ''
+          purchasingCategoryFullPathCode: ''
+          purchasingCategoryFullPathName: ''
+          purchasingCategoryName: ''
+          purchasingOrgCode: ''
+          purchasingOrgName: ''
+          purchasingTypeCode: ''
+          purchasingTypeName: ''
+          quantity: ''
+          regionCode: ''
+          remarks: ''
+          requestTime: 0
+          requestTitle: ''
+          serviceEndTime: 0
+          serviceStartTime: 0
+          serviceTimezone: ''
+          templateCode: ''
+          templateList: []
+          templateName: ''
+          templateVersion: 0
+          unitCode: ''
+          unitName: ''
+          unitPrice: ''
+          vendorCode: ''
+          vendorName: ''
+          version: '{{ver}}'
+          wbsCode: ''
+          wbsName: ''
+          zoneCode: ''
+          zoneName: ''
+        method: POST
+        url: /demand/api/demand/draft
+      table: <落库表>
+  TC29:
+    _candidate:
+      endpoint: POST /demand/api/accept/return
+      marker: contract
+      score: 5.0
+      signals:
+      - path_seg:accept
+      - path_seg:return
+      - method_name:return
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: DemandOperateRequest
+        marker: contract
+        required:
+        - demandRequestCode
+        - version
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          demandRequestCode: <必填·待填>
+          remark: ''
+          version: '{{ver}}'
+        method: POST
+        url: /demand/api/accept/return
+      table: <落库表>
+  TC38:
+    _candidate:
+      endpoint: POST /demand/api/x5/bpm/approve
+      marker: contract
+      score: 3.8
+      signals:
+      - path_seg:approve
+      - method_name:approve
+      - dto:approve
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: ApproveEventRequest
+        marker: contract
+        required: []
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          assignee: ''
+          businessKey: ''
+          comment: ''
+          currentDate: ''
+          delegationUser: ''
+          formData: ''
+          modelCode: ''
+          operator: ''
+          ssfStepId: ''
+          status: ''
+          targetTaskDefinitionKey: ''
+          taskDefinitionKey: ''
+          taskId: ''
+          taskName: ''
+          variables: ''
+        method: POST
+        url: /demand/api/x5/bpm/approve
+      table: <落库表>
+  TC44:
+    _candidate:
+      endpoint: POST /demand/api/homepage/demand/todo/order
+      marker: contract
+      score: 3.8
+      signals:
+      - path_seg:order
+      - method_name:order
+      - dto:order
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: OrderTodoPageQueryRequest
+        marker: contract
+        required:
+        - pageNum
+        - pageSize
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          pageNum: <必填·待填>
+          pageSize: <必填·待填>
+          purchasingOrgCode: ''
+        method: POST
+        url: /demand/api/homepage/demand/todo/order
+      table: <落库表>
+  TC53:
+    _candidate:
+      endpoint: POST /demand/api/x5/bpm/approve
+      marker: contract
+      score: 3.8
+      signals:
+      - path_seg:approve
+      - method_name:approve
+      - dto:approve
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: ApproveEventRequest
+        marker: contract
+        required: []
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          assignee: ''
+          businessKey: ''
+          comment: ''
+          currentDate: ''
+          delegationUser: ''
+          formData: ''
+          modelCode: ''
+          operator: ''
+          ssfStepId: ''
+          status: ''
+          targetTaskDefinitionKey: ''
+          taskDefinitionKey: ''
+          taskId: ''
+          taskName: ''
+          variables: ''
+        method: POST
+        url: /demand/api/x5/bpm/approve
+      table: <落库表>
+  TC60:
+    _candidate:
+      endpoint: POST /demand/api/homepage/demand/todo/order
+      marker: contract
+      score: 3.8
+      signals:
+      - path_seg:order
+      - method_name:order
+      - dto:order
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: OrderTodoPageQueryRequest
+        marker: contract
+        required:
+        - pageNum
+        - pageSize
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          pageNum: <必填·待填>
+          pageSize: <必填·待填>
+          purchasingOrgCode: ''
+        method: POST
+        url: /demand/api/homepage/demand/todo/order
+      table: <落库表>
+  TC61:
+    _candidate:
+      endpoint: POST /demand/api/homepage/demand/todo/order
+      marker: contract
+      score: 3.8
+      signals:
+      - path_seg:order
+      - method_name:order
+      - dto:order
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: OrderTodoPageQueryRequest
+        marker: contract
+        required:
+        - pageNum
+        - pageSize
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          pageNum: <必填·待填>
+          pageSize: <必填·待填>
+          purchasingOrgCode: ''
+        method: POST
+        url: /demand/api/homepage/demand/todo/order
+      table: <落库表>
+  TC62:
+    _candidate:
+      endpoint: POST /demand/api/homepage/demand/todo/order
+      marker: contract
+      score: 3.8
+      signals:
+      - path_seg:order
+      - method_name:order
+      - dto:order
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: OrderTodoPageQueryRequest
+        marker: contract
+        required:
+        - pageNum
+        - pageSize
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          pageNum: <必填·待填>
+          pageSize: <必填·待填>
+          purchasingOrgCode: ''
+        method: POST
+        url: /demand/api/homepage/demand/todo/order
+      table: <落库表>
+  TC65:
+    _candidate:
+      endpoint: POST /demand/api/homepage/demand/todo/order
+      marker: contract
+      score: 3.8
+      signals:
+      - path_seg:order
+      - method_name:order
+      - dto:order
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: OrderTodoPageQueryRequest
+        marker: contract
+        required:
+        - pageNum
+        - pageSize
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          pageNum: <必填·待填>
+          pageSize: <必填·待填>
+          purchasingOrgCode: ''
+        method: POST
+        url: /demand/api/homepage/demand/todo/order
+      table: <落库表>
+  TC66:
+    _candidate:
+      endpoint: POST /demand/api/accept/batch/validate
+      marker: contract
+      score: 8.4
+      signals:
+      - path_seg:batch
+      - path_seg:validate
+      - method_name:batch
+      - method_name:validate
+      - dto:accept
+      - dto:batch
+      - dto:validate
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: AcceptBatchValidateRequest
+        marker: contract
+        required:
+        - operationCode
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          demandRequestCodeList: []
+          operationCode: <必填·待填>
+          requestItemIdList: 0
+        method: POST
+        url: /demand/api/accept/batch/validate
+      table: <落库表>
+  TC70:
+    _candidate:
+      endpoint: POST /demand/api/accept/item/transfer
+      marker: contract
+      score: 3.8
+      signals:
+      - path_seg:transfer
+      - method_name:transfer
+      - dto:transfer
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: AssignmentTransferRequest
+        marker: contract
+        required:
+        - demandRequestCode
+        - itemId
+        - targetAssigneeUserId
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          demandRequestCode: <必填·待填>
+          itemId: <必填·待填>
+          targetAssigneeUserId: <必填·待填>
+        method: POST
+        url: /demand/api/accept/item/transfer
+      table: <落库表>
+  TC72:
+    _candidate:
+      endpoint: POST /demand/api/accept/return
+      marker: contract
+      score: 5.0
+      signals:
+      - path_seg:accept
+      - path_seg:return
+      - method_name:return
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: DemandOperateRequest
+        marker: contract
+        required:
+        - demandRequestCode
+        - version
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          demandRequestCode: <必填·待填>
+          remark: ''
+          version: '{{ver}}'
+        method: POST
+        url: /demand/api/accept/return
+      table: <落库表>
+  TC77:
+    _candidate:
+      endpoint: POST /demand/api/homepage/demand/todo/order
+      marker: contract
+      score: 3.8
+      signals:
+      - path_seg:order
+      - method_name:order
+      - dto:order
+      status: draft
+    feature: <待填>
+    mode: write
+    write:
+      _contract:
+        dto: OrderTodoPageQueryRequest
+        marker: contract
+        required:
+        - pageNum
+        - pageSize
+      assert_status:
+        column: <状态列>
+        value: <期望态>
+      parent_key: <父键>
+      parent_marker_col: <标记列>
+      request:
+        body:
+          pageNum: <必填·待填>
+          pageSize: <必填·待填>
+          purchasingOrgCode: ''
+        method: POST
+        url: /demand/api/homepage/demand/todo/order
+      table: <落库表>

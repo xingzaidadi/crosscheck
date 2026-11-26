@@ -104,7 +104,9 @@ def main():
 
     import subprocess
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    gp = subprocess.run([sys.executable, "-I", "tests/test_no_business_in_core.py"], capture_output=True, cwd=root)
+    _guard_env = dict(os.environ)
+    _guard_env["PYTHONPATH"] = os.pathsep.join(p for p in [root, _guard_env.get("PYTHONPATH")] if p)
+    gp = subprocess.run([sys.executable, "tests/test_no_business_in_core.py"], capture_output=True, cwd=root, env=_guard_env)
     assert gp.returncode == 0, "零业务门禁应通过"
     print("    ✓ 零业务门禁仍通过:core 一行未改")
     print("\n全部通过 ✅  —— UI 探测/抽取层换套件(antd)照样跑,非 hi-v5 硬编码,core 零改动")

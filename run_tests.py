@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -17,6 +18,21 @@ except Exception:
 ROOT = Path(__file__).resolve().parent
 
 
+def _subprocess_env() -> dict:
+    """子进程环境:把仓库根注入 PYTHONPATH,保证 import core/adapters/db/scripts 可解析。
+
+    历史上这里用 python -I(隔离模式),它会清空 PYTHONPATH 且不读 pytest.ini 的
+    pythonpath,导致所有 import core 的用例误报 ModuleNotFoundError。统一走显式 env。"""
+    environment = dict(os.environ)
+    environment["PYTHONUTF8"] = "1"
+    existing = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = (
+        os.pathsep.join([str(ROOT), existing]) if existing else str(ROOT)
+    )
+    return environment
+
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="运行 tests/ 下全部离线回归")
     parser.add_argument("--coverage", action="store_true", help="用 coverage 子进程统计测试覆盖率")
@@ -25,12 +41,13 @@ def main() -> int:
     print(f"统一自测:{len(tests)} 个用例(离线)\n")
     passed, failed = [], []
     t0 = time.time()
+    environment = _subprocess_env()
     for t in tests:
-        command = [sys.executable, "-I", str(t)]
+        command = [sys.executable, str(t)]
         if args.coverage:
             command = [sys.executable, "-m", "coverage", "run", "--parallel-mode",
                        "--source=core,adapters,db,scripts", str(t)]
-        r = subprocess.run(command, cwd=str(ROOT),
+        r = subprocess.run(command, cwd=str(ROOT), env=environment,
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         ok = r.returncode == 0
         (passed if ok else failed).append(t.name)

@@ -1,0 +1,129 @@
+{
+  "overall": 6.2,
+  "dimensions": [
+    {
+      "name": "runnability",
+      "score": 10.0,
+      "weight": 0.2,
+      "basis": "自测通过率 225/225 = 100.0%",
+      "facts": {
+        "tests_total": 225,
+        "tests_passed": 225,
+        "pass_rate": 1.0
+      }
+    },
+    {
+      "name": "coverage",
+      "score": 5.7,
+      "weight": 0.2,
+      "basis": "分支覆盖率 45.9%(满分锚点 80%)",
+      "facts": {
+        "coverage_pct": 45.95,
+        "anchor_pct": 80.0
+      }
+    },
+    {
+      "name": "autobuild",
+      "score": 5.2,
+      "weight": 0.35,
+      "basis": "自动建模覆盖 ready 40/63=63.5%, 零人工路由 0/63=0.0%(满分锚点 85%)",
+      "facts": {
+        "cases_total": 63,
+        "ready_true": 40,
+        "ready_rate": 0.6349,
+        "zero_route": 0,
+        "zero_route_rate": 0.0
+      }
+    },
+    {
+      "name": "oracle",
+      "score": 2.1,
+      "weight": 0.15,
+      "basis": "oracle 覆盖 ready 4+partial 46 /142=19.0%(+46 partial 半权)(锚点 80%)",
+      "facts": {
+        "cases_with_oracle": 4,
+        "cases_partial": 46,
+        "cases_total": 142,
+        "effective_cases": 27.0,
+        "oracle_rate": 0.1901,
+        "diff_mode": false
+      }
+    },
+    {
+      "name": "e2e_demo",
+      "score": 10.0,
+      "weight": 0.1,
+      "basis": "demo 三源打通(UI+API+DB, residue=0)",
+      "facts": {
+        "three_source_ok": true
+      }
+    },
+    {
+      "name": "generalization",
+      "score": 5.0,
+      "weight": 0.1,
+      "basis": "自驱跑通 1 个 + 半通 1 个 = 有效 1.5/3 个真实异构系统(满分锚点 3 个)；全通: system-path-procurement；半通: system-hash-spa",
+      "facts": {
+        "systems_full": 1,
+        "systems_partial": 1,
+        "effective_systems": 1.5,
+        "anchor": 3,
+        "ids_full": [
+          "system-path-procurement"
+        ],
+        "ids_partial": [
+          "system-hash-spa"
+        ]
+      }
+    }
+  ],
+  "weight_sum": 1.1,
+  "badge": "![scorecard](https://img.shields.io/badge/crosscheck-6.2%2F10-yellow)",
+  "sources": {
+    "tests": "cli-provided",
+    "coverage": "coverage.json",
+    "readiness": "workspace",
+    "readiness_fingerprint": {
+      "sha256_12": "f883aff3db8b",
+      "total": 63,
+      "buckets": {
+        "ready": 40,
+        "blocked:rule": 3,
+        "unknown": 20
+      }
+    },
+    "oracle": "workspace/suites/ebuy-demand-full-142-20261115",
+    "demo": "workspace",
+    "generalization_evidence": {
+      "system-path-procurement": {
+        "catalog_families": [
+          "/demand/api",
+          "/demand/approval",
+          "/demand/close",
+          "/demand/detail",
+          "/demand/discard",
+          "/demand/draft"
+        ],
+        "readiness": "f883aff3db8b",
+        "catalog_evidence": {
+          "actions_captured.json": "570d3fdfe33c",
+          "bpm.json": "01af85f913d7",
+          "ebuy-demand.json": "01af85f913d7"
+        }
+      },
+      "system-hash-spa": {
+        "route_families": [
+          "/m2/#",
+          "/s2/#",
+          "/v2/#",
+          "/vd2/#"
+        ],
+        "readiness": null,
+        "capture_evidence": {
+          "供应商检索_1792670205.json": "3c2e5ae25aa0",
+          "需求管理_1795418077.json": "ff6bb9c489ba"
+        }
+      }
+    }
+  }
+}

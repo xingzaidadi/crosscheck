@@ -177,6 +177,20 @@ def make_readonly_db_factory(db_name: str = ""):
     return factory
 
 
+def build_checker(*, min_coverage: float = 0.5, llm: Any = None, snapshot: Any = None):
+    """装配 CP-1' 语义复核子 Agent(软门)。
+
+    判定优先级(守可复现):snapshot 在场→只读快照可复现判定;否则 llm 可用→实时档位B
+    (仅生成快照用);都无→档位A 词法覆盖。llm/snapshot 皆 None 时逐位同历史现状。
+
+    返回物符合 StageAgent 协议(produce),但【不放进三段 mapping】——它由
+    orchestrator 的 checker= 单独入参接收,spec 段过闸后旁路跑,只产 spec_review。
+    """
+    from core.spec_checker import SpecChecker
+
+    return SpecChecker(min_coverage=min_coverage, llm=llm, snapshot=snapshot)
+
+
 def build_agents(
     raw_by_case: dict[str, Any],
     *,
@@ -190,17 +204,27 @@ def build_agents(
     allow_write: bool = False,
     db_factory: Callable[[], Any] | None = None,
     db_name: str = "",
+    with_checker: bool = False,
+    checker_min_coverage: float = 0.5,
+    checker_llm: Any = None,
 ) -> dict[str, Any]:
-    """装配三段子 Agent(SpecAgent/ActionsAgent/EvidenceAgent),返回 orchestrator 可用的 mapping。"""
+    """装配三段子 Agent(SpecAgent/ActionsAgent/EvidenceAgent),返回 orchestrator 可用的 mapping。
+
+    with_checker=True 时额外在返回 mapping 里带一个保留键 "checker"(CP-1' 语义软门子 Agent);
+    调用方需把它 pop 出来、作为 orchestrator 的 checker= 单独传入(它不是三段之一)。
+    """
     from core.stage_adapters import ActionsAgent, EvidenceAgent, SpecAgent
 
     if db_factory is None and db_name:
         db_factory = make_readonly_db_factory(db_name)
 
-    return {
+    agents = {
         "spec": SpecAgent(make_spec_modeler(raw_by_case, routes=routes, kb_root=kb_root,
                                             caps_root=caps_root), auto_verify=auto_verify),
         "actions": ActionsAgent(make_ui_runner(evidence_root=evidence_root, session=session,
                                                headed=headed, allow_write=allow_write)),
         "evidence": EvidenceAgent(make_evidence_verifier(db_factory=db_factory)),
     }
+    if with_checker:
+        agents["checker"] = build_checker(min_coverage=checker_min_coverage, llm=checker_llm)
+    return agents
