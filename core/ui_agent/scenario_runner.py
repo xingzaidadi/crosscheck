@@ -70,6 +70,12 @@ def run_scenarios(
             rows.append({"scenario": sid, "title": title, "verdict": "DRAFT_FAILED",
                          "executed": False, "reason": draft.get("reason") or "场景建模失败"})
             continue
+        # 缺陷3:场景在当前输入下无法兑现意图(如 not_found 没有查询输入可注入)→ BLOCKED,
+        # 绝不降级成能假通过的动作。
+        if state == "blocked":
+            rows.append({"scenario": sid, "title": title, "verdict": "BLOCKED",
+                         "executed": False, "reason": draft.get("reason") or "场景无法兑现意图"})
+            continue
         if state != "draft":
             rows.append({"scenario": sid, "title": title, "verdict": "SKIPPED_UNKNOWN_STATE",
                          "executed": False, "reason": f"未知草稿状态:{state!r}"})
@@ -79,6 +85,12 @@ def run_scenarios(
         evidence_dir = scen_dir / (sid or "scenario") / "evidence"
         try:
             plan = plan_builder(instruction)
+            # 缺陷3:场景的**动作**以草稿里经 apply_scenario_mutation 变换后的结构化动作为准,
+            # 绝不用 plan_builder 从指令文本重解析的动作顶替——否则场景意图(empty_query 的
+            # 空值、not_found 的 AUTOTEST_ 不存在值、reset_filter 的填→查→重置顺序)会丢失。
+            draft_actions = list(draft.get("actions") or [])
+            if draft_actions and hasattr(plan, "actions"):
+                plan.actions = [dict(a) for a in draft_actions]
             # 边界场景的结构化可观察 oracle 由 scenario_execution_drafts 附在草稿上;
             # plan_builder 只从指令文本重建计划,拿不到这些结构化断言,故在此并入计划的
             # oracles(去重),让 empty_query/not_found/reset_filter 真正带着可判断言执行。

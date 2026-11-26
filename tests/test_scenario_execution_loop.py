@@ -66,13 +66,19 @@ def test_boundary_scenarios_carry_observable_oracles():
     修复点:此前这三条场景的预期是散文("确认列表正常渲染"等),无法抽成断言,只会落进
     unresolved_expectations 把场景拖成 INCONCLUSIVE。改法后它们必须携带 runtime 已支持、
     能判 PASS/FAIL 的 oracle kind。本测试锁住这个属性,防回退。
+
+    缺陷3 后:empty_query/not_found 要求计划里确有查询输入字段才能兑现意图,故这里用
+    带明确查询值的指令(输入订单号 1001 并查询),让这些场景真正可展开。
     """
-    req = AgentTestRequest(url="https://example.test", instruction="测试订单列表查询")
+    req = AgentTestRequest(url="https://example.test",
+                           instruction="在订单列表输入订单号 1001 并查询")
     drafts = {d["scenario"]: d for d in scenario_execution_drafts(req)}
     # runtime(scripts/ui_test.py::_evaluate_oracle)真正能判的、本修复用到的 kind 白名单
     judgeable = {"page_health", "filter_controls", "count", "text_contains", "visibility"}
     for sid in ("empty_query", "not_found", "reset_filter"):
         assert sid in drafts, f"宽查询指令应展开 {sid} 场景:{list(drafts)}"
+        assert drafts[sid].get("state") == "draft", \
+            f"{sid} 在有查询输入时应为可执行 draft:{drafts[sid]}"
         oracles = drafts[sid].get("oracles") or []
         kinds = {o.get("kind") for o in oracles}
         assert oracles, f"{sid} 应带可观察断言,而非空:{drafts[sid]}"
@@ -87,12 +93,31 @@ def test_boundary_scenarios_carry_observable_oracles():
     print("    ✓ empty_query/not_found/reset_filter 均带结构化可观察断言(可判 PASS/FAIL,非散文)")
 
 
+def test_boundary_scenarios_blocked_when_no_query_input():
+    """缺陷3 诚实性:无查询输入字段时,empty_query/not_found 无法兑现意图 → BLOCKED,不假通过。
+
+    "测试订单列表查询"这类泛指令建不出查询输入动作,此时构造不出"空条件"或"不存在数据",
+    场景应如实标 blocked(reason 说明),绝不降级成一个能假通过的动作。reset_filter 不依赖
+    输入值(填→查→重置),仍可展开为 draft。
+    """
+    req = AgentTestRequest(url="https://example.test", instruction="测试订单列表查询")
+    drafts = {d["scenario"]: d for d in scenario_execution_drafts(req)}
+    for sid in ("empty_query", "not_found"):
+        assert drafts[sid].get("state") == "blocked", \
+            f"{sid} 无查询输入时应 blocked,实得:{drafts[sid]}"
+        assert drafts[sid].get("reason"), f"{sid} blocked 应给出 reason"
+    assert drafts["reset_filter"].get("state") == "draft", \
+        "reset_filter 不依赖输入值,仍应可展开为 draft"
+    print("    ✓ 无查询输入时 empty_query/not_found 如实 BLOCKED(不假通过),reset_filter 仍可跑")
+
+
 def main():
     print("Tier-2 场景执行闭环 骨架回归:\n")
     test_read_only_scenarios_become_executable_drafts()
     test_write_scenario_is_not_auto_expanded()
     test_empty_instruction_degrades_gracefully()
     test_boundary_scenarios_carry_observable_oracles()
+    test_boundary_scenarios_blocked_when_no_query_input()
     print("\n全部通过 ✅  —— 场景建议→执行草稿闭环接线正确,read-only 优先、写操作需人审")
 
 

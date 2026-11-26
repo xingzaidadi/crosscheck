@@ -216,16 +216,9 @@ def generate_scenarios(instruction: str) -> list[dict[str, Any]]:
 # 指令尾句**只保留可执行的动作意图**,不再拼"确认列表正常渲染/出现空结果/条件被清空"
 # 这类散文预期——那些散文无法被 _natural_language_oracles 抽成断言,只会落进
 # unresolved_expectations 把场景拖成 INCONCLUSIVE。可观察的"判据"改由下面
-# _SCENARIO_ORACLES 以**结构化 oracle dict** 直接给出,走 runtime 已支持的判定分支,
-# 从而让 empty_query / not_found / reset_filter 能产出真正的 PASS/FAIL。
-_SCENARIO_INSTRUCTION = {
-    "happy_path": "{base}",
-    "empty_query": "{base}；用空条件执行查询",
-    "not_found": "{base}；用一个不存在的数据执行查询",
-    "reset_filter": "{base}；执行查询后重置筛选条件",
-    "authorized_role": "{base}（以有权限角色只读查看）",
-    "unauthorized_role": "{base}（以无权限角色只读查看）",
-}
+# _SCENARIO_ORACLES 以**结构化 oracle dict** 直接给出,走 runtime 已支持的判定分支;
+# 场景的**动作差异**则由 apply_scenario_mutation 对结构化动作表做显式变换(缺陷3),
+# 不再把场景意图拼进散文尾句重新解析。
 
 # 异常/边界场景的**可观察断言**(结构化 oracle,不经自然语言正则往返)。
 # 只用 runtime(scripts/ui_test.py::_evaluate_oracle)**已支持**的 kind,保证能判 PASS/FAIL:
@@ -262,6 +255,71 @@ _SCENARIO_ORACLES: dict[str, list[dict[str, Any]]] = {
 }
 
 
+# ── 缺陷3:场景动作必须兑现场景意图(结构化变换,非散文重拼) ──────────────
+# 旧实现把场景意图拼进自然语言尾句再 build_agent_plan 重新解析散文,导致 not_found
+# 仍沿用基础指令里的真实查询值(例如 1001),"用不存在的数据"根本没进 actions。
+# 下面对**结构化动作表**做显式变换,让每个场景的动作真正体现其意图。
+_QUERY_INPUT_ACTIONS = ("search_value", "text", "number", "fill")
+_QUERY_TRIGGER_TEXTS = ("查询", "搜索")
+# 保证不存在的查询值:固定前缀 + 不含业务语义,任何真实库都查不到(零业务,不猜死值)。
+_GUARANTEED_ABSENT_VALUE = "AUTOTEST_NO_SUCH_RECORD_404"
+
+
+def _is_query_input(action: dict) -> bool:
+    return (action.get("action") in _QUERY_INPUT_ACTIONS
+            and action.get("purpose") == "query")
+
+
+def _is_query_trigger(action: dict) -> bool:
+    return (action.get("action") == "click"
+            and str(action.get("text") or "") in _QUERY_TRIGGER_TEXTS)
+
+
+def apply_scenario_mutation(sid: str, actions: list[dict]) -> tuple[list[dict], str | None]:
+    """对结构化动作表做显式场景变换,返回 (变换后的动作表, blocked_reason)。
+
+    铁律『意图即计划』:场景变体直接改结构化计划,绝不回到散文重新解析。
+      - empty_query  : 清空所有查询输入值(value=""),保留查询触发 → 真·空条件查询。
+      - not_found    : 把查询输入值替换为保证不存在的 AUTOTEST_ 值 → 真·查不存在数据。
+      - reset_filter : 保证"填值→查询→重置"顺序:若缺查询触发/重置动作则补齐。
+      - authorized_role / unauthorized_role / happy_path : 动作本身不变(角色由会话绑定)。
+
+    返回的 blocked_reason 非空代表该场景在当前输入下无法兑现意图(例如需要一个查询输入
+    却一个都没有),调用方应据此判 BLOCKED —— 不改成一个能"假通过"的降级动作。
+    """
+    mutated = [dict(item) for item in (actions or [])]
+    has_query_input = any(_is_query_input(item) for item in mutated)
+
+    if sid == "empty_query":
+        if not has_query_input:
+            return mutated, "empty_query 需要至少一个查询输入字段才能构造空条件,当前计划无查询输入"
+        for item in mutated:
+            if _is_query_input(item):
+                item["value"] = ""
+                item["scenario_mutation"] = "empty_query:cleared"
+        return mutated, None
+
+    if sid == "not_found":
+        if not has_query_input:
+            return mutated, "not_found 需要至少一个查询输入字段才能注入不存在值,当前计划无查询输入"
+        for item in mutated:
+            if _is_query_input(item):
+                item["value"] = _GUARANTEED_ABSENT_VALUE
+                item["scenario_mutation"] = "not_found:absent_value"
+        return mutated, None
+
+    if sid == "reset_filter":
+        if not any(_is_query_trigger(item) for item in mutated):
+            mutated.append({"action": "click", "text": "查询"})
+        if not any(item.get("action") == "click" and str(item.get("text") or "") == "重置"
+                   for item in mutated):
+            mutated.append({"action": "click", "text": "重置"})
+        return mutated, None
+
+    # happy_path / 角色场景:动作不变(角色差异由登录会话承载,不在动作层伪造)。
+    return mutated, None
+
+
 def scenario_execution_drafts(request: Any) -> list[dict[str, Any]]:
     """把场景建议接成"执行闭环草稿":逐条场景 → 可执行 plan 草稿(draft 态,**不自动跑**)。
 
@@ -280,6 +338,16 @@ def scenario_execution_drafts(request: Any) -> list[dict[str, Any]]:
     base_instruction = str(getattr(request, "instruction", "") or "")
     url = str(getattr(request, "url", "") or "")
     role = str(getattr(request, "role", "default") or "default")
+    # 只按基础指令建一次结构化计划,作为所有场景的共同底座。场景差异走
+    # apply_scenario_mutation 对结构化动作做显式变换,绝不把场景意图拼回散文再解析。
+    try:
+        base_plan = build_agent_plan(AgentTestRequest(url=url, instruction=base_instruction, role=role))
+        base_dict = base_plan.to_dict()
+        base_actions = base_dict.get("actions") or []
+        base_oracles = base_dict.get("oracles") or []
+    except Exception as exc:  # noqa: BLE001  底座建模失败:所有场景无法展开,如实标注
+        return [{"scenario": "happy_path", "state": "draft_failed", "plan": None,
+                 "reason": f"base plan build failed: {str(exc)[:200]}"}]
     drafts: list[dict[str, Any]] = []
     for scenario in generate_scenarios(base_instruction):
         sid = scenario.get("id")
@@ -288,27 +356,25 @@ def scenario_execution_drafts(request: Any) -> list[dict[str, Any]]:
                            "state": "needs_authorization", "plan": None,
                            "reason": "写操作场景需显式人审授权,不自动展开成可执行草稿"})
             continue
-        template = _SCENARIO_INSTRUCTION.get(sid, "{base}")
-        instruction = template.format(base=base_instruction)
-        try:
-            plan = build_agent_plan(AgentTestRequest(url=url, instruction=instruction, role=role))
-            draft_plan = plan.to_dict()
-        except Exception as exc:  # noqa: BLE001  单条场景建模失败不连累其余
+        # 缺陷3:对结构化动作表做显式场景变换(非散文重拼)。拿不到兑现意图所需的输入
+        # 时返回 blocked_reason,如实标 BLOCKED,绝不降级成能假通过的动作。
+        actions, blocked_reason = apply_scenario_mutation(sid, base_actions)
+        if blocked_reason:
             drafts.append({"scenario": sid, "title": scenario.get("title"),
-                           "state": "draft_failed", "plan": None, "reason": str(exc)[:200]})
+                           "state": "blocked", "plan": None, "reason": blocked_reason})
             continue
-        # 边界场景:把结构化可观察 oracle 并进计划产出的 oracles(去重),让这些场景能判
+        # 边界场景:把结构化可观察 oracle 并进底座 oracles(去重),让这些场景能判
         # PASS/FAIL 而非只靠散文落进 unresolved_expectations。runner 会把这份 oracles 带进
         # 真实执行(见 scenario_runner.run_scenarios)。
-        oracles = list(draft_plan.get("oracles") or [])
+        oracles = list(base_oracles)
         for extra in _SCENARIO_ORACLES.get(sid, []):
             if not any(o.get("kind") == extra.get("kind")
                        and str(o.get("value")) == str(extra.get("value"))
                        for o in oracles):
                 oracles.append(dict(extra))
         drafts.append({"scenario": sid, "title": scenario.get("title"),
-                       "instruction": instruction, "state": "draft",
-                       "actions": draft_plan.get("actions") or [],
+                       "instruction": base_instruction, "state": "draft",
+                       "actions": actions,
                        "oracles": oracles,
                        "auto_executed": False})
     return drafts
