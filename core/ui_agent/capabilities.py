@@ -207,3 +207,59 @@ def generate_scenarios(instruction: str) -> list[dict[str, Any]]:
     if any(term in text for term in ("提交", "保存", "创建", "发布", "审批")):
         scenarios.append({"id": "mutation_review", "title": "写操作（需显式授权）", "risk": "authorized_write"})
     return scenarios
+
+
+# 每个场景如何落成一条"可执行指令草稿"。只做 read_only 场景的确定性改写(把场景意图
+# 拼到原指令上),写操作场景(authorized_write)一律不自动展开——需显式人审授权。
+# 零业务:这里不认任何业务词,只认 generate_scenarios 产出的通用场景 id。
+_SCENARIO_INSTRUCTION = {
+    "happy_path": "{base}",
+    "empty_query": "{base}；用空条件执行查询，确认列表区域正常渲染",
+    "not_found": "{base}；用一个不存在的数据执行查询，确认出现空结果或无数据提示",
+    "reset_filter": "{base}；执行查询后重置筛选条件，确认条件被清空",
+    "authorized_role": "{base}（以有权限角色只读查看）",
+    "unauthorized_role": "{base}（以无权限角色只读查看，确认受限提示）",
+}
+
+
+def scenario_execution_drafts(request: Any) -> list[dict[str, Any]]:
+    """把场景建议接成"执行闭环草稿":逐条场景 → 可执行 plan 草稿(draft 态,**不自动跑**)。
+
+    兑现审计建议 #3(场景建议→执行闭环)的框架骨架。闭环分两步、物理隔离:
+      ① 本函数只**生成草稿**:对每个 read_only 场景,把场景意图确定性改写成一条执行指令,
+         复用 build_agent_plan 产出真实可执行的动作/断言计划,打上 draft 戳。
+      ② 真正执行由 runner 显式驱动(本函数绝不触发浏览器、绝不改判定)——与"不自动晋级/
+         read-only 优先"铁律一致。写操作场景(authorized_write)只列为 needs_authorization,
+         不展开成可执行草稿,必须人工显式授权后另行处理。
+
+    离线可验证:接线正确(场景→草稿一一对应、动作非空、写场景不展开),无需真实后端;
+    "场景在陌生系统能不能真跑通"仍回到断言可信性(第一档)与真实运行(第三档),不在此冒充。
+    """
+    from core.agent_test_intake import AgentTestRequest, build_agent_plan
+
+    base_instruction = str(getattr(request, "instruction", "") or "")
+    url = str(getattr(request, "url", "") or "")
+    role = str(getattr(request, "role", "default") or "default")
+    drafts: list[dict[str, Any]] = []
+    for scenario in generate_scenarios(base_instruction):
+        sid = scenario.get("id")
+        if scenario.get("risk") == "authorized_write":
+            drafts.append({"scenario": sid, "title": scenario.get("title"),
+                           "state": "needs_authorization", "plan": None,
+                           "reason": "写操作场景需显式人审授权,不自动展开成可执行草稿"})
+            continue
+        template = _SCENARIO_INSTRUCTION.get(sid, "{base}")
+        instruction = template.format(base=base_instruction)
+        try:
+            plan = build_agent_plan(AgentTestRequest(url=url, instruction=instruction, role=role))
+            draft_plan = plan.to_dict()
+        except Exception as exc:  # noqa: BLE001  单条场景建模失败不连累其余
+            drafts.append({"scenario": sid, "title": scenario.get("title"),
+                           "state": "draft_failed", "plan": None, "reason": str(exc)[:200]})
+            continue
+        drafts.append({"scenario": sid, "title": scenario.get("title"),
+                       "instruction": instruction, "state": "draft",
+                       "actions": draft_plan.get("actions") or [],
+                       "oracles": draft_plan.get("oracles") or [],
+                       "auto_executed": False})
+    return drafts

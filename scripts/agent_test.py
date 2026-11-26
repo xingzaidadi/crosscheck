@@ -19,6 +19,7 @@ from core.ui_agent.runtime import AgentRuntime  # noqa: E402
 from core.ui_agent.capabilities import (  # noqa: E402
     connector_readiness,
     generate_scenarios,
+    scenario_execution_drafts,
     history_summary,
     summarize_api_payload,
 )
@@ -219,6 +220,7 @@ def run(args) -> dict:
               "execution": execution, "layers": layer_status, "hardening": hardening,
               "capabilities": {
                   "scenarios": generate_scenarios(request.instruction),
+                  "scenario_drafts": scenario_execution_drafts(request),
                   "connector_readiness": readiness,
                   "cross_layer_plan": cross_layer,
                   "visual": visual,

@@ -67,15 +67,21 @@ def _evaluate_oracle(page, oracle: dict[str, Any]) -> dict[str, Any]:
         expected = str(oracle.get("expected") or "")
         label_locator = page.get_by_text(label, exact=True).first
         actual = ""
+        located = False  # 是否真正定位到了"目标字段"这个控件/单元格
         if label_locator.count():
             scope = label_locator.locator("xpath=ancestor-or-self::*[self::label or self::td or self::th or self::div][1]")
             if scope.count():
                 control = scope.locator("input, textarea, select").first
                 actual = control.input_value() if control.count() else scope.inner_text().replace(label, "", 1).strip(" ：:\n\t")
-        if not actual:
-            body = page.locator("body").inner_text()
-            actual = expected if expected in body else ""
-        ok = actual == expected or expected in actual
+                located = True
+        # 铁律『不假通过』:取不到目标字段值时判 inconclusive(ok=None),**绝不**退回
+        # 全页正文搜索。旧逻辑 `expected in body 就 actual=expected` 会把"页面别处恰好
+        # 出现 expected 字样"误当成"目标字段等于 expected"——哪怕目标字段其实是别的值,
+        # 或根本没定位到。误通过比没测更危险,故只在真正拿到目标字段值时才比对。
+        if not located or not actual:
+            ok = None
+        else:
+            ok = actual == expected or expected in actual
     elif oracle["kind"] == "api_status":
         # API status is evaluated by the autonomous runner from captured
         # response metadata; this branch is retained for legacy callers.

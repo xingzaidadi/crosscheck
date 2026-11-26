@@ -170,13 +170,23 @@ class ObservationPlanner:
             desired = self.state.pending_actions[0]
             if desired.get("action") == "reach" and action_visible(desired, observation):
                 target = str(desired.get("target") or "")
-                if target in str(observation.get("body_text") or ""):
+                # 铁律『不假通过』——审计 #2a:菜单名出现在 body_text ≠ 已到达目标页。
+                # 旧逻辑 `target in body_text` 就只发 observe(不点击),把"看见菜单名"误当
+                # "已经到了"。到达必须有真导航证据:① 该导航目标此前已被有把握地点击解析过
+                # (resolved_navigations,=发生过真实点击/页面转移)且目标现于当前页出现 → 才
+                # 发 observe 核验到达;② 否则只要目标对应一个可见的导航控件就点它(真导航)。
+                # 既没导航证据、又无可点控件(只是正文里有这串字)→ 不在此短路成"到达",
+                # 落到下方网关/provider 语义探索,退伍只在确有导航证据时发生。
+                if _norm_goal(desired) in self.state.resolved_navigations \
+                        and target in str(observation.get("body_text") or ""):
                     return PlannerDecision("execute", {"action": "observe", "target": target},
-                                           "requested goal is observable on the current page", .95,
+                                           "navigation completed; verifying arrival on the target page", .95,
                                            desired_action=desired)
-                return PlannerDecision("execute", {"action": "click", "text": target},
-                                       "requested goal is a visible control", .9,
-                                       desired_action=desired)
+                if any(_score_control(item, target, target) >= 70
+                       for item in observation.get("controls") or []):
+                    return PlannerDecision("execute", {"action": "click", "text": target},
+                                           "requested goal is a visible navigation control", .9,
+                                           desired_action=desired)
             if desired.get("action") == "search_value" and observation.get("fields"):
                 field = next((item for item in observation.get("fields") or []
                               if not item.get("disabled") and not item.get("readonly")), None)
@@ -189,7 +199,7 @@ class ObservationPlanner:
                         "using the first editable query field for the requested value", .78,
                         desired_action=desired,
                     )
-            if action_visible(desired, observation):
+            if action_visible(desired, observation) and desired.get("action") != "reach":
                 candidates = self._rank_candidates(desired, observation)
                 if desired.get("action") == "click" and str(desired.get("text") or "") in {"详情", "查看详情", "明细"}:
                     return PlannerDecision("execute", desired, "detail navigation control is visible", .95,
@@ -316,12 +326,9 @@ class ObservationPlanner:
         goal as completed avoids repeatedly blocking on a textual target.
         """
         desired = decision.desired_action or {}
-        if desired.get("action") == "reach":
-            target = str(desired.get("target") or "")
-            if target and target in str(observation.get("body_text") or ""):
-                if self.state.pending_actions and desired == self.state.pending_actions[0]:
-                    self.state.completed_actions.append(self.state.pending_actions.pop(0))
-                    return True
+        # 审计 #2a 曾在此处第二次假通过:reach 目标只要字面出现在 body_text 就退伍放行,
+        # 把"看见菜单名"误当"已到达"。已删除该正文短路——退伍只认下方"有把握的语义网关
+        # 真点开过"(resolved_navigations)这一真导航证据,不凭正文里出现菜单名冒充到达。
         # 该导航目标此前被"有把握的语义网关"(provider/强确定性)解析并点开过,如今却仍
         # 找不到更具体的目标控件而 blocked:说明网关本身就是目的地(用例措辞≠落地页标题,
         # 如用例"客户资料"落在"会员档案"页),导航其实已成功,退伍放行而非误判 BLOCKED。
