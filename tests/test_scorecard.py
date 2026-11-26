@@ -83,6 +83,20 @@ def main():
     assert agg["overall"] == 5.0
     print("    ✓ 权重归一化正确")
 
+    # 两维分母解耦:autobuild 分母用自己的语料(63),oracle 分母用套件(142),不混用。
+    # 回归历史缺陷——旧口径 max(63,142) 会把 autobuild 分母顶成 142,分子却来自 63 语料。
+    decoupled = build_scorecard(
+        tests_total=200, tests_passed=200, coverage_pct=85,
+        cases_total=63, ready_true=40, zero_route=15,
+        cases_with_oracle=4, cases_partial=46, diff_mode=False, three_source_ok=True,
+        oracle_total=142,
+    )
+    ab = next(d for d in decoupled["dimensions"] if d["name"] == "autobuild")
+    orc = next(d for d in decoupled["dimensions"] if d["name"] == "oracle")
+    assert ab["facts"]["cases_total"] == 63, f"autobuild 分母必须是 63(自有语料), got {ab['facts']['cases_total']}"
+    assert orc["facts"]["cases_total"] == 142, f"oracle 分母必须是 142(套件), got {orc['facts']['cases_total']}"
+    print(f"    ✓ 两维分母解耦:autobuild 40/63={ab['facts']['ready_rate']:.1%}, oracle 分母=142(不混用)")
+
     print("\n全部通过 ✅  —— 分数由机器从事实确定性折算,可复算、可单测")
 
 

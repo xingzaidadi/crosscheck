@@ -143,13 +143,21 @@ def build_scorecard(
     diff_mode: bool = False,
     cases_partial: int = 0,
     three_source_ok: bool = False,
+    oracle_total: int | None = None,
 ) -> dict[str, Any]:
-    """从采集好的事实产出完整计分卡(确定性、可单测、可复算)。"""
+    """从采集好的事实产出完整计分卡(确定性、可单测、可复算)。
+
+    cases_total   : autobuild 维的分母——工具实际自动建模过的那套语料的用例总数。
+    oracle_total  : oracle 维的分母——被评估套件的用例总数;缺省退回 cases_total。
+    两维分母必须各用各的语料,不可混用(否则分子来自语料甲、分母来自语料乙,
+    autobuild 会被一张固定考卷的规模绑架,量不出跨语料/跨系统的真实建模率)。
+    """
+    o_total = oracle_total if oracle_total is not None else cases_total
     dims = [
         score_runnability(tests_total, tests_passed),
         score_coverage(coverage_pct),
         score_autobuild(cases_total, ready_true, zero_route),
-        score_oracle(cases_with_oracle, cases_total, diff_mode, cases_partial),
+        score_oracle(cases_with_oracle, o_total, diff_mode, cases_partial),
         score_demo(three_source_ok),
     ]
     return aggregate(dims)

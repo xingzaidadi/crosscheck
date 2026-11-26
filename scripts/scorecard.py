@@ -73,6 +73,27 @@ def _read_readiness(workspace: str | None) -> tuple[int, int, int]:
     return total, ready, zero_route
 
 
+def _readiness_fingerprint(workspace: str | None) -> dict:
+    """readiness.yaml 的内容指纹:sha256(前12) + 分桶计数。
+    让一张分数卡能被核对是否基于同一份 readiness(该文件不入 git、可能重跑漂移)。"""
+    if not workspace:
+        return {"sha256_12": None, "total": 0, "buckets": {}}
+    path = Path(workspace) / "readiness.yaml"
+    if not path.exists():
+        return {"sha256_12": None, "total": 0, "buckets": {}}
+    import hashlib
+    raw = path.read_bytes()
+    from core.readiness import load_readiness
+    data = load_readiness(path)
+    buckets: dict[str, int] = {}
+    for v in data.values():
+        key = "ready" if v.get("ready") else (
+            "blocked:" + ",".join(v.get("blocked_by") or []) if v.get("blocked_by") else "unknown")
+        buckets[key] = buckets.get(key, 0) + 1
+    return {"sha256_12": hashlib.sha256(raw).hexdigest()[:12],
+            "total": len(data), "buckets": buckets}
+
+
 def _read_oracle(suite: str | None) -> tuple[int, int, bool, int]:
     """返回 (cases_with_oracle_ready, cases_total, diff_mode, cases_partial)。"""
     if not suite:
@@ -151,9 +172,9 @@ def main() -> int:
     coverage_pct = _read_coverage(args.coverage_json)
     cases_total, ready_true, zero_route = _read_readiness(args.workspace)
     cases_with_oracle, oracle_total, diff_mode, oracle_partial = _read_oracle(args.suite)
-    # oracle 的分母以套件为准;若没套件,退回 readiness 分母
-    if oracle_total:
-        cases_total = max(cases_total, oracle_total)
+    # 两维分母各用各的语料,不再 max 混用:
+    #   autobuild 分母 = readiness 语料总数(工具实际自动建模过的那套)
+    #   oracle    分母 = 套件总数(被评估套件);缺省退回 readiness 分母
     three_source_ok = _read_demo(args.demo_workspace, args.run_demo)
 
     card = build_scorecard(
@@ -163,12 +184,18 @@ def main() -> int:
         cases_with_oracle=cases_with_oracle, diff_mode=diff_mode,
         cases_partial=oracle_partial,
         three_source_ok=three_source_ok,
+        oracle_total=(oracle_total or None),
     )
     card["badge"] = _badge(card["overall"])
+    # readiness 快照指纹:readiness.yaml 不入版本控制、每次重跑可能漂移,
+    # 这里把当次输入的内容 hash + 分桶计数记进来,让"这张分数卡对应哪份 readiness"
+    # 可追溯、可复算——不改 gitignore 策略,只锁住分数的输入指纹。
+    readiness_fp = _readiness_fingerprint(args.workspace)
     card["sources"] = {
         "tests": "run_tests.py" if args.run_tests else "cli-provided",
         "coverage": args.coverage_json or "(none)",
         "readiness": (args.workspace or "(none)"),
+        "readiness_fingerprint": readiness_fp,
         "oracle": (args.suite or "(none)"),
         "demo": "run" if args.run_demo else (args.demo_workspace or "(none)"),
     }
