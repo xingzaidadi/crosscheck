@@ -67,6 +67,16 @@ def _lines(value: str) -> list[str]:
             for item in str(value or "").splitlines() if item.strip()]
 
 
+def _cue_text(line: str) -> str:
+    """去掉引号内目标字面后的"措辞文本",用于判定可见/缺失等语义线索。
+
+    铁律『断言绑定目标字段』:缺失词(不存在/隐藏…)或可见词只应来自用户自己的措辞,
+    而非目标文本内容。若引号里的字面恰好含"不存在"之类词(如确认出现文本"…不存在…"),
+    不该把断言期望翻成 False——那会造成"目标缺失=预期缺失"的误通过。
+    """
+    return QUOTED.sub(" ", line or "")
+
+
 def _labels(value: str) -> list[str]:
     labels = [item.strip() for item in QUOTED.findall(value or "") if item.strip()]
     labels.extend(extract_safe_labels(value))
@@ -191,7 +201,8 @@ def build_ui_intent(raw_case, base_url: str) -> UiIntent:
         if url_match:
             intent.oracles.append(UiOracle("url_contains", url_match.group(0), True, line))
             continue
-        if labels and any(word in line for word in ABSENCE_WORDS):
+        cue = _cue_text(line)
+        if labels and any(word in cue for word in ABSENCE_WORDS):
             intent.oracles.extend(UiOracle("visibility", label, False, line) for label in labels)
             continue
         equals_match = re.search(r"[“‘\"《【]([^”’\"》】]{1,80})[”’\"》】]\s*(?:等于|为|是)\s*[“‘\"《【]([^”’\"》】]{1,120})[”’\"》】]", line)
@@ -199,11 +210,11 @@ def build_ui_intent(raw_case, base_url: str) -> UiIntent:
             intent.oracles.append(UiOracle("field_value_equals", equals_match.group(1), equals_match.group(2), line))
             continue
         status_words = tuple(_SEMANTICS.get("status_terms") or ())
-        if any(word in line for word in status_words) and any(word in line for word in VISIBILITY_WORDS):
+        if any(word in line for word in status_words) and any(word in cue for word in VISIBILITY_WORDS):
             intent.oracles.append(UiOracle("status_groups", "status", True, line,
                                            fields=list(_SEMANTICS.get("status_groups") or [])))
             continue
-        if labels and any(word in line for word in VISIBILITY_WORDS):
+        if labels and any(word in cue for word in VISIBILITY_WORDS):
             intent.oracles.extend(UiOracle("visibility", label, True, line) for label in labels)
             continue
         if re.search(r"(?:模糊匹配|交集过滤|多选.*生效|筛选准确)", line):

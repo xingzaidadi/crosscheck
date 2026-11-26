@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from core.ui_agent.observer import observe
+from core.ui_agent.observer import observe, wait_for_settle
 from core.ui_agent.planner import ObservationPlanner, PlannerDecision
 from core.ui_agent.recovery import recover_and_click
 from core.ui_agent.risk_policy import assess_action
@@ -66,6 +66,9 @@ class AgentRuntime:
             if page.url != plan.url:
                 page.goto(plan.url, wait_until="domcontentloaded", timeout=20000)
             page.wait_for_timeout(500)
+            # 等微前端/SPA 子应用挂载稳定后再观察,否则只能快照到"加载中"外壳(确定性、
+            # 零业务;超时不阻断,照常观察)。
+            wait_for_settle(page)
             current_observation = observe(page)
             current_observation["screenshot"] = str(output / "before.png")
             result.observations.append(current_observation)
@@ -138,6 +141,7 @@ class AgentRuntime:
                 if pages and pages[-1] != page:
                     page = pages[-1]
                     page.wait_for_load_state("domcontentloaded", timeout=10000)
+                wait_for_settle(page)
                 current_observation = observe(page)
                 result.page_maps.append(semantic_map(current_observation))
                 step_screenshot = output / f"step-{index:02d}.png"
