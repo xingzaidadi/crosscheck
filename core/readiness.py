@@ -90,15 +90,51 @@ def compute_one(case_id: str, prose: str, route: dict | None, caps: Capabilities
     return CaseReadiness(case_id, False, ["action-body"], "接口从未在流量里出现(缺真实报文/触发)")
 
 
+def _case_field(c: Any, *names: str) -> str:
+    """从用例里取一个文本字段,兼容两种载体:
+      - 对象(RawCase):属性 .name/.steps_text/...
+      - dict(load_suite 产物):顶层键,或嵌套在 actions/assertions 下的 source_text。
+    任一命名命中即返回;都没有则空串。不认任何业务语义。"""
+    if isinstance(c, dict):
+        for n in names:
+            if n in c and isinstance(c[n], str) and c[n]:
+                return c[n]
+            # dict 用例把散文放在 actions.source_text / assertions.source_text
+            for sec in ("actions", "assertions"):
+                sub = c.get(sec)
+                if isinstance(sub, dict) and n in sub and isinstance(sub[n], str) and sub[n]:
+                    return sub[n]
+        return ""
+    for n in names:
+        v = getattr(c, n, "")
+        if v:
+            return str(v)
+    return ""
+
+
+def _case_prose(c: Any) -> str:
+    """拼一条用例的全部可检索散文,兼容对象与 dict 两种载体。"""
+    return "\n".join([
+        _case_field(c, "name", "title"),
+        _case_field(c, "steps_text", "source_text"),      # dict: actions.source_text
+        _case_field(c, "expected_text"),                   # dict: assertions.source_text(经 actions 落空后由下一项兜)
+        _case_field(c, "assertions_text", "source_text"),  # 冗余兜底:断言散文
+        _case_field(c, "preconditions"),
+        _case_field(c, "notes"),
+    ])
+
+
 def compute_readiness(cases: list[Any], caps: Capabilities,
                       routes: dict | None = None) -> list[CaseReadiness]:
-    """cases: 带 .case_id / .steps_text / .expected_text / .name 的用例对象(RawCase 兼容)。
-    routes: by_case_id 路由表(可选);逐条算就绪。"""
+    """cases: 用例集合,元素可为 RawCase 对象或 load_suite 返回的 dict。
+    routes: by_case_id 路由表(可选);逐条算就绪。
+    注:dict 用例的接口字面量多在 actions.source_text,必须从该字段抽,
+    否则所有 dict 用例会因读空散文被误判 unknown(历史 getattr-on-dict 缺陷)。"""
     by_id = (routes or {}).get("by_case_id") or {}
     out = []
     for c in cases:
-        cid = getattr(c, "case_id", "") or ""
-        prose = f"{getattr(c,'name','')}\n{getattr(c,'steps_text','')}\n{getattr(c,'expected_text','')}\n{getattr(c,'preconditions','')}\n{getattr(c,'notes','')}"
+        cid = _case_field(c, "case_id") or ""
+        prose = _case_prose(c)
         out.append(compute_one(cid, prose, by_id.get(cid), caps))
     return out
 
