@@ -127,9 +127,32 @@ def run(args) -> dict:
             discovered_session = workspace / ".auth" / "discovered-session.json"
             discovered_session.parent.mkdir(parents=True, exist_ok=True)
             context.storage_state(path=str(discovered_session))
-        runtime = AgentRuntime(policy=request.risk_policy, allow_write=request.allow_write,
-                               write_scope=request.write_scope, max_steps=args.max_steps)
-        execution = runtime.run(page, plan, run_dir / "evidence").to_dict()
+        def _make_runtime():
+            return AgentRuntime(policy=request.risk_policy, allow_write=request.allow_write,
+                                write_scope=request.write_scope, max_steps=args.max_steps)
+
+        scenario_matrix = None
+        if getattr(args, "scenarios", False):
+            # 场景执行闭环:逐条只读真跑、分别报告(复用同一已登录 context/page)。
+            # 写操作场景绝不执行(risk_policy=read_only + driver 内跳过 双保险)。
+            from core.ui_agent.scenario_runner import run_scenarios
+            drafts = scenario_execution_drafts(request)
+            scenario_matrix = run_scenarios(
+                page=page, request=request, scenario_drafts=drafts,
+                run_dir=run_dir, runtime_factory=_make_runtime,
+            )
+            happy = next((row for row in scenario_matrix["scenarios"]
+                          if row.get("scenario") == "happy_path"), None)
+            happy_dir = run_dir / "scenarios" / "happy_path" / "evidence"
+            happy_trace = happy_dir / "trace.json"
+            if happy_trace.is_file():
+                execution = json.loads(happy_trace.read_text(encoding="utf-8"))
+            else:
+                execution = {"status": (happy or {}).get("verdict", "INCONCLUSIVE"),
+                             "assertions": [], "evidence": [], "error": (happy or {}).get("error", "")}
+        else:
+            runtime = _make_runtime()
+            execution = runtime.run(page, plan, run_dir / "evidence").to_dict()
         if "api" in plan.requested_layers:
             api_path = run_dir / "evidence" / "api-events.json"
             api_path.write_text(json.dumps(api_events, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -228,6 +251,8 @@ def run(args) -> dict:
                   "history": history_summary(workspace),
               },
               "report_dir": str(run_dir)}
+    if scenario_matrix is not None:
+        report["scenario_matrix"] = scenario_matrix
     report["asset_reused"] = bool(reusable_asset)
     if reusable_asset:
         report["asset_id"] = reusable_asset.get("asset_id")
@@ -248,6 +273,8 @@ def main() -> int:
     parser.add_argument("--write-scope")
     parser.add_argument("--run-id")
     parser.add_argument("--max-steps", type=int, default=20)
+    parser.add_argument("--scenarios", action="store_true",
+                        help="场景执行闭环:逐条只读执行主流程/异常/边界场景并分别报告(写场景不自动执行)")
     parser.add_argument("--headed", action="store_true")
     persistence = parser.add_mutually_exclusive_group()
     persistence.add_argument("--save-regression", action="store_true",
