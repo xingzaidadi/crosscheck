@@ -173,6 +173,47 @@ def test_draft_failed_not_executed():
     print("    ✓ draft_failed 草稿不执行")
 
 
+def test_draft_oracles_merged_into_executed_plan():
+    """草稿携带的结构化可观察 oracle 必须被并进真实执行的 plan。
+
+    修复要害:plan_builder 只从指令文本重建计划,拿不到场景草稿上的结构化断言;若 runner 不
+    合并,empty_query/not_found/reset_filter 的 count/page_health/filter_controls 永远不会被
+    执行,场景照旧 INCONCLUSIVE。本测试捕获 runtime 收到的 plan.oracles,证明断言真进了执行。
+    """
+    class _PlanWithOracles:
+        def __init__(self):
+            self.url = "https://example.test/list"
+            self.oracles = [{"kind": "visibility", "value": "列表", "expected": True}]
+
+    captured = {}
+
+    class _CapturingRuntime:
+        def run(self, page, plan, evidence_dir):
+            captured["oracles"] = list(getattr(plan, "oracles", []))
+            return {"status": "PASSED", "assertions": [], "error": ""}
+
+    drafts = [{
+        "scenario": "not_found", "title": "不存在的数据", "state": "draft",
+        "instruction": "查询订单列表;用不存在的数据", "actions": [{"action": "observe"}],
+        "oracles": [
+            {"kind": "count", "selector": "table tbody tr", "value": 0, "expected": 0},
+            {"kind": "page_health", "value": "page", "expected": True},
+        ],
+    }]
+    with tempfile.TemporaryDirectory() as tmp:
+        run_scenarios(
+            page=_FakePage(), request=_FakeRequest("查询订单列表"), scenario_drafts=drafts,
+            run_dir=tmp, runtime_factory=lambda: _CapturingRuntime(),
+            plan_builder=lambda instruction: _PlanWithOracles(),
+        )
+    kinds = {o.get("kind") for o in captured.get("oracles", [])}
+    assert "count" in kinds and "page_health" in kinds, \
+        f"草稿结构化断言应被并进执行 plan,实得 {kinds}"
+    # 原计划已有的 visibility 不被覆盖(合并而非替换)
+    assert "visibility" in kinds, f"合并应保留计划原有断言:{kinds}"
+    print("    ✓ 草稿结构化可观察断言被并进真实执行 plan(场景能判 PASS/FAIL)")
+
+
 def main():
     print("场景执行闭环驱动器离线回归:\n")
     test_wiring_drafts_from_broad_instruction()
@@ -180,6 +221,7 @@ def main():
     test_run_scenarios_counts_and_separate_evidence()
     test_run_scenarios_isolates_exception()
     test_draft_failed_not_executed()
+    test_draft_oracles_merged_into_executed_plan()
     print("\n全部通过 ✅  —— 场景建议→逐条只读真跑→分别报告 闭环已接通(写场景永不自动执行)")
 
 

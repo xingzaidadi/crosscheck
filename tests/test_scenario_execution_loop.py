@@ -60,11 +60,39 @@ def test_empty_instruction_degrades_gracefully():
     print("    ✓ 空指令优雅降级(至少主流程一条,不崩)")
 
 
+def test_boundary_scenarios_carry_observable_oracles():
+    """异常/边界场景(empty_query/not_found/reset_filter)应带**结构化可观察断言**。
+
+    修复点:此前这三条场景的预期是散文("确认列表正常渲染"等),无法抽成断言,只会落进
+    unresolved_expectations 把场景拖成 INCONCLUSIVE。改法后它们必须携带 runtime 已支持、
+    能判 PASS/FAIL 的 oracle kind。本测试锁住这个属性,防回退。
+    """
+    req = AgentTestRequest(url="https://example.test", instruction="测试订单列表查询")
+    drafts = {d["scenario"]: d for d in scenario_execution_drafts(req)}
+    # runtime(scripts/ui_test.py::_evaluate_oracle)真正能判的、本修复用到的 kind 白名单
+    judgeable = {"page_health", "filter_controls", "count", "text_contains", "visibility"}
+    for sid in ("empty_query", "not_found", "reset_filter"):
+        assert sid in drafts, f"宽查询指令应展开 {sid} 场景:{list(drafts)}"
+        oracles = drafts[sid].get("oracles") or []
+        kinds = {o.get("kind") for o in oracles}
+        assert oracles, f"{sid} 应带可观察断言,而非空:{drafts[sid]}"
+        assert kinds & judgeable, f"{sid} 的断言必须含 runtime 可判 kind,实得 {kinds}"
+        # 指令尾句不再塞"确认 XX 正常/出现/被清空"这类无法判的散文
+        instr = drafts[sid].get("instruction") or ""
+        assert "确认列表" not in instr and "确认出现" not in instr and "确认条件" not in instr, \
+            f"{sid} 指令不应再含散文预期:{instr!r}"
+    # not_found 必须含 count=0 这个空结果硬信号
+    nf_kinds = {o.get("kind") for o in drafts["not_found"]["oracles"]}
+    assert "count" in nf_kinds, f"not_found 应含 count=0 硬信号:{nf_kinds}"
+    print("    ✓ empty_query/not_found/reset_filter 均带结构化可观察断言(可判 PASS/FAIL,非散文)")
+
+
 def main():
     print("Tier-2 场景执行闭环 骨架回归:\n")
     test_read_only_scenarios_become_executable_drafts()
     test_write_scenario_is_not_auto_expanded()
     test_empty_instruction_degrades_gracefully()
+    test_boundary_scenarios_carry_observable_oracles()
     print("\n全部通过 ✅  —— 场景建议→执行草稿闭环接线正确,read-only 优先、写操作需人审")
 
 

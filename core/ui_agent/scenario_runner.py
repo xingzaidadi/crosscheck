@@ -79,6 +79,18 @@ def run_scenarios(
         evidence_dir = scen_dir / (sid or "scenario") / "evidence"
         try:
             plan = plan_builder(instruction)
+            # 边界场景的结构化可观察 oracle 由 scenario_execution_drafts 附在草稿上;
+            # plan_builder 只从指令文本重建计划,拿不到这些结构化断言,故在此并入计划的
+            # oracles(去重),让 empty_query/not_found/reset_filter 真正带着可判断言执行。
+            draft_oracles = list(draft.get("oracles") or [])
+            if draft_oracles and hasattr(plan, "oracles"):
+                existing = list(getattr(plan, "oracles") or [])
+                for extra in draft_oracles:
+                    if not any(o.get("kind") == extra.get("kind")
+                               and str(o.get("value")) == str(extra.get("value"))
+                               for o in existing):
+                        existing.append(dict(extra))
+                plan.oracles = existing
             # 回到场景起点再跑(确定性、只读);goto 失败不阻断,交给 runtime 内部处理。
             try:
                 page.goto(getattr(plan, "url", "") or str(getattr(request, "url", "")),
